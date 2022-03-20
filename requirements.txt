@@ -4,3 +4,6 @@ python-dateutil==2.8.2
 pytz==2021.3
 six==1.16.0
 tqdm==4.63.0
+scikit_learn==1.0.2
+scipy==1.8.0
+sparse_dot_topn==0.3.1
