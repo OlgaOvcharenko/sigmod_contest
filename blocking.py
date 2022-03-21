@@ -26,7 +26,7 @@ def cosine_similarity(
     return awesome_cossim_topn(a, b, ntop=ntop, lower_bound=lower_bound)
 
 
-def get_matches_df(
+def generate_similarity_df(
     sparse_matrix: csr_matrix, match_over: pd.Series, top=None
 ) -> pd.DataFrame:
     sparse_matrix_non_zeros = sparse_matrix.nonzero()
@@ -49,6 +49,24 @@ def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     return df[df[IDX] != df[IDY]]
 
 
+def get_matched_pair(
+    vector_representation: csr_matrix,
+    similarity_over: pd.Series,
+    top_matches: int = 20,
+    confidence_score: float = 0.80,
+):
+    similarity_matrix = cosine_similarity(
+        a=vector_representation,
+        b=vector_representation.T,
+        ntop=top_matches,
+        lower_bound=confidence_score,
+    )
+    matched_pair_id = generate_similarity_df(similarity_matrix, similarity_over)
+    matched_pair_id = remove_duplicates(df=matched_pair_id)
+    matched_pair_id.sort_values(by=[SIMILARITY], inplace=True, ascending=False)
+    return matched_pair_id
+
+
 def block_with_attr(X, attr):  # replace with your logic.
     """
     This function performs blocking using attr
@@ -59,15 +77,15 @@ def block_with_attr(X, attr):  # replace with your logic.
 
     # build index from patterns to tuples
     vector_representation = generate_vector_representation(X[attr].values.tolist())
-    similarity_matrix = cosine_similarity(
-        a=vector_representation, b=vector_representation.T, ntop=10, lower_bound=0.8
+    matched_pair_id = get_matched_pair(
+        vector_representation,
+        similarity_over=X["id"],
+        top_matches=15,
+        confidence_score=0.80,
     )
-    matched_pair_id = get_matches_df(similarity_matrix, X["id"])
-    matched_pair_id = remove_duplicates(df=matched_pair_id)
-    matched_pair_id.sort_values(by=[SIMILARITY], inplace=True, ascending=False)
-
     # UNCOMMENT TO DEBUG
-    # matched_pair_str = get_matches_df(similarity_matrix, X[attr])
+    # matched_pair_str = get_matched_pair(vector_representation, similarity_over=X[attr], top_matches=15,
+    #                                        confidence_score=0.80)
 
     candidate_pairs = list(zip(matched_pair_id[IDX], matched_pair_id[IDY]))
     candidate_pairs_real_ids = list()
