@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -8,6 +9,15 @@ from tqdm import tqdm
 SIMILARITY = "similarity"
 IDX = "lid"
 IDY = "rid"
+
+
+def metric(output, true_value):
+    intersection = pd.merge(output, true_value, how="inner", on=[IDX, IDY])
+    return len(intersection.index) / len(true_value.index)
+
+
+def generate_df_for_metric(matched_pair):
+    return pd.DataFrame(matched_pair, columns=[IDX, IDY])
 
 
 def get_tf_id_vector(x, ngram_range) -> csr_matrix:
@@ -80,7 +90,7 @@ def block_with_attr(X, attr):  # replace with your logic.
     matched_pair_id = get_matched_pair(
         vector_representation,
         similarity_over=X["id"],
-        top_matches=15,
+        top_matches=20,
         confidence_score=0.80,
     )
     # UNCOMMENT TO DEBUG
@@ -143,6 +153,12 @@ X2 = pd.read_csv("X2.csv")
 # perform blocking
 X1_candidate_pairs = block_with_attr(X1, attr="title")
 X2_candidate_pairs = block_with_attr(X2, attr="name")
+
+recall = np.mean(metric(generate_df_for_metric(X1_candidate_pairs), pd.read_csv('Y1.csv'))
+                 + metric(generate_df_for_metric(X2_candidate_pairs), pd.read_csv('Y2.csv')))
+print(
+    f"Recall : {recall}"
+)
 
 # save results
 save_output(X1_candidate_pairs, X2_candidate_pairs)
