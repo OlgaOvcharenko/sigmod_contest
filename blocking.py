@@ -3,10 +3,11 @@ import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from scipy.sparse import csr_matrix
 from sparse_dot_topn import awesome_cossim_topn
+from tqdm import tqdm
 
 SIMILARITY = "similarity"
-IDX = "idx"
-IDY = "idy"
+IDX = "lid"
+IDY = "rid"
 
 
 def get_tf_id_vector(x, ngram_range) -> csr_matrix:
@@ -20,12 +21,14 @@ def generate_vector_representation(x, ngram_range: tuple = (1, 4)) -> csr_matrix
 
 def cosine_similarity(
     a: csr_matrix, b: csr_matrix, ntop: int = 10, lower_bound: float = 0.80
-):
+) -> csr_matrix:
     # https://github.com/ing-bank/sparse_dot_topn
     return awesome_cossim_topn(a, b, ntop=ntop, lower_bound=lower_bound)
 
 
-def get_matches_df(sparse_matrix, name_vector, top=None) -> pd.DataFrame:
+def get_matches_df(
+    sparse_matrix: csr_matrix, match_over: pd.Series, top=None
+) -> pd.DataFrame:
     sparse_matrix_non_zeros = sparse_matrix.nonzero()
 
     _rows = sparse_matrix_non_zeros[0]
@@ -33,8 +36,8 @@ def get_matches_df(sparse_matrix, name_vector, top=None) -> pd.DataFrame:
 
     df = pd.DataFrame(
         {
-            IDX: name_vector[_rows].values[:top],
-            IDY: name_vector[_cols].values[:top],
+            IDX: match_over[_rows].values[:top],
+            IDY: match_over[_cols].values[:top],
             SIMILARITY: sparse_matrix.data[:top],
         }
     )
@@ -55,8 +58,24 @@ def block_with_attr(X, attr):  # replace with your logic.
     similarity_matrix = cosine_similarity(
         a=vector_representation, b=vector_representation.T, ntop=10, lower_bound=0.8
     )
-    matched_pair = get_matches_df(similarity_matrix, X["id"])
-    candidate_pairs_real_ids = list(zip(matched_pair[IDX], matched_pair[IDY]))
+    matched_pair_id = get_matches_df(similarity_matrix, X["id"])
+
+    # UNCOMMENT TO DEBUG
+    # matched_pair_str = get_matches_df(similarity_matrix, X[attr])
+
+    candidate_pairs = list(zip(matched_pair_id[IDX], matched_pair_id[IDY]))
+    candidate_pairs_real_ids = list()
+
+    for it in tqdm(candidate_pairs):
+        real_id1, real_id2 = it
+
+        # NOTE: This is to make sure in the final output.csv, for a pair id1 and id2 (assume id1<id2),
+        # we only include (id1,id2) but not (id2, id1)
+        if real_id1 < real_id2:
+            candidate_pairs_real_ids.append((real_id1, real_id2))
+        else:
+            candidate_pairs_real_ids.append((real_id2, real_id1))
+
     return candidate_pairs_real_ids
 
 
