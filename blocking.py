@@ -42,6 +42,10 @@ def get_matches_df(
         }
     )
 
+    return df
+
+
+def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     return df[df[IDX] != df[IDY]]
 
 
@@ -59,6 +63,8 @@ def block_with_attr(X, attr):  # replace with your logic.
         a=vector_representation, b=vector_representation.T, ntop=10, lower_bound=0.8
     )
     matched_pair_id = get_matches_df(similarity_matrix, X["id"])
+    matched_pair_id = remove_duplicates(df=matched_pair_id)
+    matched_pair_id.sort_values(by=[SIMILARITY], inplace=True, ascending=False)
 
     # UNCOMMENT TO DEBUG
     # matched_pair_str = get_matches_df(similarity_matrix, X[attr])
