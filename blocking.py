@@ -3,7 +3,6 @@ import re
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 
-from sklearn.feature_extraction.text import TfidfVectorizer
 from scipy.sparse import csr_matrix
 from sparse_dot_topn import awesome_cossim_topn
 from tqdm import tqdm
