@@ -1,14 +1,22 @@
+import re
+
 import numpy as np
 import pandas as pd
+from sentence_transformers import SentenceTransformer
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from scipy.sparse import csr_matrix
 from sparse_dot_topn import awesome_cossim_topn
 from tqdm import tqdm
 
+MODEL = "all-MiniLM-L6-v2"
 SIMILARITY = "similarity"
 IDX = "lid"
 IDY = "rid"
+
+
+def load_sentence_embedding_model():
+    return SentenceTransformer(MODEL)
 
 
 def metric(output, true_value):
@@ -77,6 +85,27 @@ def get_matched_pair(
     return matched_pair_id
 
 
+def pre_process(df: pd.DataFrame):
+    df = df.applymap(lambda s: s.lower() if type(s) == str else s)
+    df = df.applymap(lambda x: re.sub(r"\W+", " ", x) if type(x) == str else x)
+    return df
+
+
+def run_dummy_simulation():
+    # dummy_simulation = X[attr].values.tolist() * 1000000
+    #
+    # from timeit import default_timer as timer
+    # from datetime import timedelta
+    # start = timer()
+    # for i, sen in enumerate(dummy_simulation):
+    #     print(f"SENTENCE {i}/1000000")
+    #     dummy_simulation_sentence_embeddings = model.encode(sen)
+    #
+    # end = timer()
+    # print(timedelta(seconds=end - start))
+    pass
+
+
 def block_with_attr(X, attr):  # replace with your logic.
     """
     This function performs blocking using attr
@@ -86,16 +115,28 @@ def block_with_attr(X, attr):  # replace with your logic.
     """
 
     # build index from patterns to tuples
-    vector_representation = generate_vector_representation(X[attr].values.tolist())
-    matched_pair_id = get_matched_pair(
-        vector_representation,
-        similarity_over=X["id"],
-        top_matches=20,
-        confidence_score=0.80,
+    X = pre_process(X)
+
+    model = load_sentence_embedding_model()
+    sentence_embeddings = model.encode(X[attr].values.tolist())
+
+    vector_representation = csr_matrix(sentence_embeddings)
+    matched_pair_id = remove_duplicates(
+        get_matched_pair(
+            vector_representation,
+            similarity_over=X["id"],
+            top_matches=30,
+            confidence_score=0.80,
+        )
     )
+
     # UNCOMMENT TO DEBUG
-    # matched_pair_str = get_matched_pair(vector_representation, similarity_over=X[attr], top_matches=15,
-    #                                        confidence_score=0.80)
+    # matched_pair_str = get_matched_pair(
+    #     vector_representation,
+    #     similarity_over=X[attr],
+    #     top_matches=30,
+    #     confidence_score=0.80,
+    # )
 
     candidate_pairs = list(zip(matched_pair_id[IDX], matched_pair_id[IDY]))
     candidate_pairs_real_ids = list()
@@ -154,11 +195,11 @@ X2 = pd.read_csv("X2.csv")
 X1_candidate_pairs = block_with_attr(X1, attr="title")
 X2_candidate_pairs = block_with_attr(X2, attr="name")
 
-recall = np.mean(metric(generate_df_for_metric(X1_candidate_pairs), pd.read_csv('Y1.csv'))
-                 + metric(generate_df_for_metric(X2_candidate_pairs), pd.read_csv('Y2.csv')))
-print(
-    f"Recall : {recall}"
+recall = np.average(
+    metric(generate_df_for_metric(X1_candidate_pairs), pd.read_csv("Y1.csv"))
+    + metric(generate_df_for_metric(X2_candidate_pairs), pd.read_csv("Y2.csv"))
 )
+print(f"Recall : {recall}")
 
 # save results
 save_output(X1_candidate_pairs, X2_candidate_pairs)
