@@ -1,6 +1,5 @@
 import re
 
-import numpy as np
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 
@@ -17,24 +16,6 @@ IDY = "rid"
 
 def load_sentence_embedding_model():
     return SentenceTransformer(MODEL)
-
-
-def metric(output, true_value):
-    intersection = pd.merge(output, true_value, how="inner", on=[IDX, IDY])
-    return len(intersection.index) / len(true_value.index)
-
-
-def generate_df_for_metric(matched_pair):
-    return pd.DataFrame(matched_pair, columns=[IDX, IDY])
-
-
-def get_tf_id_vector(x, ngram_range) -> csr_matrix:
-    tf_id_vector = TfidfVectorizer(ngram_range=ngram_range)
-    return tf_id_vector.fit_transform(x)
-
-
-def generate_vector_representation(x, ngram_range: tuple = (1, 4)) -> csr_matrix:
-    return get_tf_id_vector(x, ngram_range)
 
 
 def cosine_similarity(
@@ -195,11 +176,6 @@ X2 = pd.read_csv("X2.csv")
 X1_candidate_pairs = block_with_attr(X1, attr="title")
 X2_candidate_pairs = block_with_attr(X2, attr="name")
 
-recall = np.average(
-    metric(generate_df_for_metric(X1_candidate_pairs), pd.read_csv("Y1.csv"))
-    + metric(generate_df_for_metric(X2_candidate_pairs), pd.read_csv("Y2.csv"))
-)
-print(f"Recall : {recall}")
 
 # save results
 save_output(X1_candidate_pairs, X2_candidate_pairs)
