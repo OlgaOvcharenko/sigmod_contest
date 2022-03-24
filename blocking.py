@@ -7,7 +7,6 @@ import timeit
 
 import numpy as np
 import pandas as pd
-from sentence_transformers import SentenceTransformer
 
 from scipy.sparse import csr_matrix
 from sparse_dot_topn import awesome_cossim_topn
@@ -68,10 +67,6 @@ def generate_embeddings(model, data, ids):
 
 def load_universal_sentence_encoder():
     return hub.load(URL)
-
-
-def load_sentence_embedding_model():
-    return SentenceTransformer(MODEL)
 
 
 def cosine_similarity(
