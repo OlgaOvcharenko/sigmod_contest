@@ -1,16 +1,73 @@
+import os
+import time
+from concurrent.futures import ThreadPoolExecutor
+import logging
 import re
+import timeit
 
+import numpy as np
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 
 from scipy.sparse import csr_matrix
 from sparse_dot_topn import awesome_cossim_topn
 from tqdm import tqdm
+import tensorflow_hub as hub
 
+
+URL = "https://tfhub.dev/google/universal-sentence-encoder/4"
 MODEL = "all-MiniLM-L6-v2"
 SIMILARITY = "similarity"
 IDX = "lid"
 IDY = "rid"
+BATCH_SIZE = 1024
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+
+def map_async(iterable, func, model, max_workers=os.cpu_count()):
+    # https://devdreamz.com/question/825056-how-do-i-use-threads-on-a-generator-while-keeping-the-order
+    # Generator that applies func to the input using max_workers concurrent jobs
+    def async_iterator():
+        iterator = iter(iterable)
+        pending_results = []
+        has_input = True
+        thread_pool = ThreadPoolExecutor(max_workers)
+        while True:
+            # Submit jobs for remaining input until max_worker jobs are running
+            while (
+                has_input
+                and len([e for e in pending_results if e.running()]) < max_workers
+            ):
+                try:
+                    ids, data = next(iterator)
+                    logger.info(f"Submitting Task for {ids.values.tolist()}")
+                    pending_results.append(thread_pool.submit(func, model, data, ids))
+                except StopIteration:
+                    logger.info(f"Submitted all task")
+                    has_input = False
+
+            # If there are no pending results, the generator is done
+            if not pending_results:
+                return
+
+            # If the oldest job is done, return its value
+            if pending_results[0].done():
+                yield pending_results.pop(0).result()
+            # Otherwise, yield the CPU, then continue starting new jobs
+            else:
+                time.sleep(0.01)
+
+    return async_iterator()
+
+
+def generate_embeddings(model, data, ids):
+    return ids, model(data)
+
+
+def load_universal_sentence_encoder():
+    return hub.load(URL)
 
 
 def load_sentence_embedding_model():
@@ -71,6 +128,12 @@ def pre_process(df: pd.DataFrame):
     return df
 
 
+def batch_gen(data: pd.DataFrame, attr: str):
+    for i, df_chunk in enumerate(data):
+        df_chunk = pre_process(df_chunk)
+        yield df_chunk["id"], df_chunk[attr]
+
+
 def run_dummy_simulation():
     # dummy_simulation = X[attr].values.tolist() * 1000000
     #
@@ -95,17 +158,28 @@ def block_with_attr(X, attr):  # replace with your logic.
     """
 
     # build index from patterns to tuples
-    X = pre_process(X)
+    universal_model = load_universal_sentence_encoder()
+    embeddings = list()
+    embeddings_ids = list()
 
-    model = load_sentence_embedding_model()
-    sentence_embeddings = model.encode(X[attr].values.tolist())
+    start = timeit.default_timer()
 
-    vector_representation = csr_matrix(sentence_embeddings)
+    for ids, result in map_async(
+        batch_gen(X, attr), generate_embeddings, universal_model
+    ):
+        embeddings.extend(result)
+        embeddings_ids.extend(ids)
+        logger.info(f"Got Result for ids {ids.values.tolist()}")
+    stop = timeit.default_timer()
+    logger.info(f"EXECUTION TIME {stop - start}")
+    embeddings = np.array(embeddings)
+
+    vector_representation = csr_matrix(embeddings)
     matched_pair_id = remove_duplicates(
         get_matched_pair(
             vector_representation,
-            similarity_over=X["id"],
-            top_matches=30,
+            similarity_over=pd.Series(embeddings_ids),
+            top_matches=10,
             confidence_score=0.80,
         )
     )
@@ -168,8 +242,8 @@ def save_output(
 
 
 # read the datasets
-X1 = pd.read_csv("X1.csv")
-X2 = pd.read_csv("X2.csv")
+X1 = pd.read_csv("X1.csv", chunksize=BATCH_SIZE)
+X2 = pd.read_csv("X2.csv", chunksize=BATCH_SIZE)
 
 # perform blocking
 X1_candidate_pairs = block_with_attr(X1, attr="title")
