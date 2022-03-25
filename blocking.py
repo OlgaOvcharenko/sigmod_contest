@@ -43,7 +43,7 @@ def map_async(iterable, func, model, max_workers=os.cpu_count()):
             ):
                 try:
                     ids, data = next(iterator)
-                    logger.info(f"Submitting Task for {ids.values.tolist()}")
+                    logger.info(f"Submitting Task")
                     pending_results.append(thread_pool.submit(func, model, data, ids))
                 except StopIteration:
                     logger.info(f"Submitted all task")
@@ -166,7 +166,7 @@ def block_with_attr(X, attr):  # replace with your logic.
     ):
         embeddings.extend(result)
         embeddings_ids.extend(ids)
-        logger.info(f"Got Result for ids {ids.values.tolist()}")
+        logger.info(f"Got Results")
     stop = timeit.default_timer()
     logger.info(f"EXECUTION TIME {stop - start}")
     embeddings = np.array(embeddings)
