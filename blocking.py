@@ -15,6 +15,8 @@ import tensorflow_hub as hub
 
 
 URL = "https://tfhub.dev/google/universal-sentence-encoder/4"
+# TRANSFORMER_MODEL = "https://tfhub.dev/google/universal-sentence-encoder-large/5"
+
 MODEL = "all-MiniLM-L6-v2"
 SIMILARITY = "similarity"
 IDX = "lid"
