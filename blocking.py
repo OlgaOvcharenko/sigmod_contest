@@ -6,79 +6,98 @@ import re
 
 
 def block_with_attr(X, id, attr):
-    tokens = dict()
+    tokens = np.zeros((X.shape[0],), dtype=object)
     doc_frequencies = dict()
 
     # TODO normalization
 
     num_words = 0
 
-    # tokenize records
+    # tokenize records patterns and count frequency
     for i in tqdm(range(X.shape[0])):
         attr_i = str(X[attr][i])
         pattern = re.findall("\w+\s\w+\d+", attr_i.lower())  # look for patterns like "thinkpad x1"
         if len(pattern) == 0:
+            tokens[i] = []
             continue
 
-        tokens[X[id][i]] = [pattern]
+        tokens[i] = pattern
 
         for token in pattern:
             num_words += 1
             frequency = doc_frequencies.get(token)
             if frequency is not None:
-                doc_frequencies[token] = frequency + 1
+                doc_frequencies[token] = [frequency[0] + 1]
             else:
-                doc_frequencies[token] = 1
+                doc_frequencies[token] = [1]
 
     # calculate tf-idf values
-    tf_idf_vec = np.zeros((len(doc_frequencies),)) # FIXME union with doc_frequencies
+    tf_idf_avg_list = np.zeros((X.shape[0],), dtype=object)
     for i in tqdm(range(X.shape[0])):
         sum, count = 0, 0
-        for token in tokens.get(X[id][i]):
-            tf = doc_frequencies.get(token) / num_words
-            idf = np.log(X.shape[0] / (doc_frequencies[token] + 1))
+        for token in tokens[i]:
+            if doc_frequencies.get(token) is None:  # FIXME
+                continue
+
+            tf = doc_frequencies.get(token)[0] / num_words
+            idf = np.log(X.shape[0] / (doc_frequencies.get(token)[0] + 1))
 
             tf_idf = tf * idf
-            tf_idf_vec[token] = tf_idf
-            if tf_idf > 1:
+            frequencies = doc_frequencies.get(token)
+            frequencies.append(tf_idf)
+            doc_frequencies[token] = frequencies
+            if doc_frequencies[token][0] > 1:
                 sum += tf_idf
                 count += 1
 
-        tf_idf_avg = sum / count
-        tokens[X[id][i]] = tokens.get(X[id][i]).append([tf_idf_avg]) # FIXME one dict for all? Maybe lists with i
+        tf_idf_avg = sum / count if count > 0 else 0
+        tf_idf_avg_list[i] = tf_idf_avg
 
     # block values by their high value tokens
     blocks = dict()
     for i in tqdm(range(X.shape[0])):
-        for token in tokens.get(X[id][i]):
-            if tf_idf_vec[token] > tokens[X[id][i]][1][0]:
-                record_list = [str(X[attr][i]).lower()]
-
+        for token in tokens[i]:
+            if doc_frequencies[token][1] > tf_idf_avg_list[i]:
+                record_list = [i]
                 if token in blocks:
                     record_list.extend(blocks.get(token))
+
                 blocks[token] = record_list
+    doc_frequencies.clear()
 
     # improve block collection as an index, create index of weights for record pairs
-    weights = []
+    weights_pairs = []
     num_pairs, sum_weights = 0, 0
-    for block in blocks.keys():
-        block_records = blocks.get(block)
+    for block in tqdm(blocks.items()):
+        block_records = block[1]
         all_pairs = [(block_records[i], block_records[j]) for i in range(len(block_records)) for j in range(i+1, len(block_records))]
 
-        for r1, r2 in zip(all_pairs):
-            sim = len(r1.intersection(r2)) / max(len(r1), len(r2))  # Jaccard similarity
-            weights.append([r1, r2, sim])  # FIXME ids instead of records
+        for r1_id, r2_id in all_pairs:
 
-            num_pairs += 1
-            sum_weights += sim
+            def intersection(lst1, lst2) -> []:
+                return list(set(lst1) & set(lst2))
+
+            r1, r2 = tokens[r1_id], tokens[r2_id]
+            if r1 != r2:
+                r1_original_id, r2_orirginal_id = X[id][r1_id], X[id][r2_id]
+                weight = len(intersection(r1, r2))
+                weights_pairs.append([weight, r1_original_id, r2_orirginal_id])
+
+                num_pairs += 1
+                sum_weights += weight
+    blocks.clear()
+    tokens = np.empty(1)
 
     weight_avg = sum_weights / num_pairs
 
-    for i in tqdm(range(weights.shape[0])):
-        if weights[i][2] < weight_avg:
-            weights.pop(i)
+    # for i in tqdm(range(len(pairs))):
+    #     if weights[i] < weight_avg:
+    #         pairs.pop(i)
+    #
+    # TODO Jaccard similarity or Levenstein distance
+    pairs = ([tuple(elem[1:3]) for elem in tqdm(weights_pairs) if not elem[0] < weight_avg])
 
-    return weights
+    return pairs
 
 
 def save_output(X1_candidate_pairs,
