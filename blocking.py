@@ -1,3 +1,4 @@
+import io
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -11,20 +12,39 @@ import pandas as pd
 from scipy.sparse import csr_matrix
 from sparse_dot_topn import awesome_cossim_topn
 from tqdm import tqdm
-import tensorflow_hub as hub
 
 
-URL = "https://tfhub.dev/google/universal-sentence-encoder/4"
-# TRANSFORMER_MODEL = "https://tfhub.dev/google/universal-sentence-encoder-large/5"
-
-MODEL = "all-MiniLM-L6-v2"
 SIMILARITY = "similarity"
 IDX = "lid"
 IDY = "rid"
-BATCH_SIZE = 1024
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+
+def recall(true, prediction):
+    return (len(set(true).intersection(set(prediction)))) / len(true)
+
+
+def load_vectors(fname):
+    fin = io.open(fname, "r", encoding="utf-8", newline="\n", errors="ignore")
+    n, d = map(int, fin.readline().split())
+    data = {}
+    for line in fin:
+        tokens = line.rstrip().split(" ")
+        data[tokens[0]] = map(float, tokens[1:])
+    return data
+
+
+def get_glove_embeddings(pth):
+    logger.info(f"LOADING GLOVE EMBEDDING")
+    embeddings_index = dict()
+    with open(pth, encoding="utf-8") as f:
+        for line in f:
+            values = line.split()
+            word = values[0]
+            embeddings_index[word] = np.asarray(values[1:], dtype="float32")
+    return embeddings_index
 
 
 def map_async(iterable, func, model, max_workers=os.cpu_count()):
@@ -63,12 +83,44 @@ def map_async(iterable, func, model, max_workers=os.cpu_count()):
     return async_iterator()
 
 
-def generate_embeddings(model, data, ids):
-    return ids, model(data)
+def l2_norm(x):
+    return np.sqrt(np.sum(x ** 2))
 
 
-def load_universal_sentence_encoder():
-    return hub.load(URL)
+def div_norm(x):
+    norm_value = l2_norm(x)
+    if norm_value > 0:
+        return x * (1.0 / norm_value)
+    else:
+        return x
+
+
+def sentence_embedding(embeddings, data: str, ids):
+    """
+
+        :param embeddings:
+        :param data:
+        :param ids:
+        :return:
+
+        @MISC {239071,
+        TITLE = {Apply word embeddings to entire document, to get a feature vector},
+        AUTHOR = {D.W. (https://stats.stackexchange.com/users/2921/d-w)},
+        HOWPUBLISHED = {Cross Validated},
+        NOTE = {URL:https://stats.stackexchange.com/q/239071 (version: 2016-10-07)},
+        EPRINT = {https://stats.stackexchange.com/q/239071},
+        URL = {https://stats.stackexchange.com/q/239071}
+    }
+    """
+    running_embedding = list()
+    for word in data.split():
+        try:
+            running_embedding.append(embeddings[word])
+        except KeyError:
+            logger.error(f"NO EMBEDDING FOUND FOR {word}")
+    u_min = np.min(np.array(running_embedding), axis=0)
+    u_max = np.max(np.array(running_embedding), axis=0)
+    return ids, np.concatenate((u_min, u_max), axis=-1)
 
 
 def cosine_similarity(
@@ -126,24 +178,8 @@ def pre_process(df: pd.DataFrame):
 
 
 def batch_gen(data: pd.DataFrame, attr: str):
-    for i, df_chunk in enumerate(data):
-        df_chunk = pre_process(df_chunk)
-        yield df_chunk["id"].values.tolist(), df_chunk[attr].values.tolist()
-
-
-def run_dummy_simulation():
-    # dummy_simulation = X[attr].values.tolist() * 1000000
-    #
-    # from timeit import default_timer as timer
-    # from datetime import timedelta
-    # start = timer()
-    # for i, sen in enumerate(dummy_simulation):
-    #     print(f"SENTENCE {i}/1000000")
-    #     dummy_simulation_sentence_embeddings = model.encode(sen)
-    #
-    # end = timer()
-    # print(timedelta(seconds=end - start))
-    pass
+    for i, df_chunk in data.iterrows():
+        yield df_chunk["id"], df_chunk[attr]
 
 
 def block_with_attr(X, attr):  # replace with your logic.
@@ -153,19 +189,20 @@ def block_with_attr(X, attr):  # replace with your logic.
     :param attr: attribute used for blocking
     :return: candidate set of tuple pairs
     """
+    X = pre_process(X)
+    glove_embeddings = get_glove_embeddings(r"glove.6B.300d.txt")
 
     # build index from patterns to tuples
-    universal_model = load_universal_sentence_encoder()
     embeddings = list()
     embeddings_ids = list()
 
     start = timeit.default_timer()
 
     for ids, result in map_async(
-        batch_gen(X, attr), generate_embeddings, universal_model
+        batch_gen(X, attr), sentence_embedding, glove_embeddings
     ):
-        embeddings.extend(result)
-        embeddings_ids.extend(ids)
+        embeddings.append(result)
+        embeddings_ids.append(ids)
         logger.info(f"Got Result")
     stop = timeit.default_timer()
     logger.info(f"EXECUTION TIME {stop - start}")
@@ -176,11 +213,10 @@ def block_with_attr(X, attr):  # replace with your logic.
         get_matched_pair(
             vector_representation,
             similarity_over=pd.Series(embeddings_ids),
-            top_matches=10,
-            confidence_score=0.80,
+            top_matches=30,
+            confidence_score=0.60,
         )
     )
-
     # UNCOMMENT TO DEBUG
     # matched_pair_str = get_matched_pair(
     #     vector_representation,
@@ -188,6 +224,7 @@ def block_with_attr(X, attr):  # replace with your logic.
     #     top_matches=30,
     #     confidence_score=0.80,
     # )
+    # matched_pair_str.to_csv("debug.csv")
 
     candidate_pairs = list(zip(matched_pair_id[IDX], matched_pair_id[IDY]))
     candidate_pairs_real_ids = list()
@@ -239,13 +276,19 @@ def save_output(
 
 
 # read the datasets
-X1 = pd.read_csv("X1.csv", chunksize=BATCH_SIZE)
-X2 = pd.read_csv("X2.csv", chunksize=BATCH_SIZE)
+X1 = pd.read_csv("X1.csv")
+X2 = pd.read_csv("X2.csv")
 
 # perform blocking
 X1_candidate_pairs = block_with_attr(X1, attr="title")
 X2_candidate_pairs = block_with_attr(X2, attr="name")
 
+print(
+    f"RECALL FOR X1 - {recall(pd.read_csv('Y1.csv').to_records(index=False).tolist(), X1_candidate_pairs)}"
+)
+print(
+    f"RECALL FOR X2 - {recall(pd.read_csv('Y2.csv').to_records(index=False).tolist(), X2_candidate_pairs)}"
+)
 
 # save results
 save_output(X1_candidate_pairs, X2_candidate_pairs)
