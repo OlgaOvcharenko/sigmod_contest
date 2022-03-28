@@ -43,7 +43,7 @@ def map_async(iterable, func, model, max_workers=os.cpu_count()):
             ):
                 try:
                     ids, data = next(iterator)
-                    logger.info(f"Submitting Task for {ids.values.tolist()}")
+                    logger.info(f"Submitting Task")
                     pending_results.append(thread_pool.submit(func, model, data, ids))
                 except StopIteration:
                     logger.info(f"Submitted all task")
@@ -128,7 +128,7 @@ def pre_process(df: pd.DataFrame):
 def batch_gen(data: pd.DataFrame, attr: str):
     for i, df_chunk in enumerate(data):
         df_chunk = pre_process(df_chunk)
-        yield df_chunk["id"], df_chunk[attr]
+        yield df_chunk["id"].values.tolist(), df_chunk[attr].values.tolist()
 
 
 def run_dummy_simulation():
@@ -166,7 +166,7 @@ def block_with_attr(X, attr):  # replace with your logic.
     ):
         embeddings.extend(result)
         embeddings_ids.extend(ids)
-        logger.info(f"Got Result for ids {ids.values.tolist()}")
+        logger.info(f"Got Result")
     stop = timeit.default_timer()
     logger.info(f"EXECUTION TIME {stop - start}")
     embeddings = np.array(embeddings)
