@@ -1,8 +1,9 @@
-from collections import defaultdict
-from tqdm import tqdm
-import pandas as pd
-import numpy as np
 import re
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
 
 
 def block_with_attr(X, id, attr):
@@ -36,9 +37,6 @@ def block_with_attr(X, id, attr):
     for i in tqdm(range(X.shape[0])):
         sum, count = 0, 0
         for token in tokens[i]:
-            if doc_frequencies.get(token) is None:  # FIXME
-                continue
-
             tf = doc_frequencies.get(token)[0] / num_words
             idf = np.log(X.shape[0] / (doc_frequencies.get(token)[0] + 1))
 
@@ -88,14 +86,10 @@ def block_with_attr(X, id, attr):
     blocks.clear()
     tokens = np.empty(1)
 
-    weight_avg = sum_weights / num_pairs
+    weight_avg = sum_weights / num_pairs if num_pairs > 0 else 0
 
-    # for i in tqdm(range(len(pairs))):
-    #     if weights[i] < weight_avg:
-    #         pairs.pop(i)
-    #
     # TODO Jaccard similarity or Levenstein distance
-    pairs = ([tuple(elem[1:3]) for elem in tqdm(weights_pairs) if not elem[0] < weight_avg])
+    pairs = ([tuple(elem[1:3]) if elem[1] < elem[2] else (elem[2], elem[1]) for elem in tqdm(weights_pairs) if not elem[0] < weight_avg])
 
     return pairs
 
@@ -124,13 +118,47 @@ def save_output(X1_candidate_pairs,
     output_df.to_csv("output.csv", index=False)
 
 
+def duplicate_with_new_id(X, times_more: int):
+    X_new = X
+    for i in range(0, times_more):
+        X_new = pd.concat([X_new, X])
+
+    return X_new.reset_index()
+
+
+def naive_blocking(X, num_blocks):
+    return np.array_split(X, num_blocks)
+
+
+def group_and_blocking(X, group_by_cols):
+    return X.groupby(group_by_cols)
+
+
 # read the datasets
 X1 = pd.read_csv("X1.csv")
 X2 = pd.read_csv("X2.csv")
 
+# X1 = duplicate_with_new_id(X1, 9)
+# print("X1 size " + str(len(X1)))
+# print("X2 size " + str(len(X2)))
+
+X1_blocks = naive_blocking(X1, 20)
+# X2_blocks = naive_blocking(X2, 40)
+X2_blocks = group_and_blocking(X2, ["brand"])
+
 # perform blocking
-X1_candidate_pairs = block_with_attr(X1, id="id", attr="title")
-X2_candidate_pairs = block_with_attr(X2, id="id", attr="name")
+X1_block_pairs = [block_with_attr(X_tmp.reset_index(), id="id", attr="title") for X_tmp in X1_blocks]
+X2_block_pairs = [block_with_attr(X_tmp.reset_index(), id="id", attr="name") for _, X_tmp in X2_blocks]
+
+X1_block_pairs = [pairs for pairs in X1_block_pairs if pairs]
+X2_block_pairs = [pairs for pairs in X2_block_pairs if pairs]
+
+X1_candidate_pairs = np.vstack(X1_block_pairs).tolist()
+X2_candidate_pairs = np.concatenate(X2_block_pairs, axis=0).tolist()
+
+# # perform blocking
+# X1_candidate_pairs = block_with_attr(X1, id="id", attr="title")
+# X2_candidate_pairs = block_with_attr(X2, id="id", attr="name")
 
 # save results
 save_output(X1_candidate_pairs, X2_candidate_pairs)
