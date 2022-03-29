@@ -14,54 +14,74 @@ def block_with_attr(X, id, attr):
 
     num_words = 0
 
-    # tokenize records patterns and count frequency
-    for i in tqdm(range(X.shape[0])):
-        attr_i = str(X[attr][i])
-        pattern = re.findall("\w+\s\w+\d+", attr_i.lower())  # look for patterns like "thinkpad x1"
-        if len(pattern) == 0:
-            tokens[i] = []
-            continue
+    vectorizer = TfidfVectorizer(stop_words='english')
+    tfidf_vector = vectorizer.fit_transform(X[attr])
+    tfidf_df = pd.DataFrame(tfidf_vector.toarray(), index=X[id], columns=vectorizer.get_feature_names())
+    tfidf_df.loc['doc_freq'] = (tfidf_df > 0).sum()  # token frequencies
 
-        tokens[i] = pattern
+    valid_doc_frequencies = (tfidf_df.iloc[tfidf_df.shape[0]-1, :] > 0).values.reshape(1, tfidf_df.shape[1])
+    # tfidf_df = tfidf_df[valid_doc_frequencies]
 
-        for token in pattern:
-            num_words += 1
-            frequency = doc_frequencies.get(token)
-            if frequency is not None:
-                doc_frequencies[token] = [frequency[0] + 1]
-            else:
-                doc_frequencies[token] = [1]
+    tfidf_df['avg'] = tfidf_df.mean(axis=1)
+
+    # tfidf_df = tfidf_df.stack().reset_index()
+    # tfidf_df = tfidf_df.rename(columns={0: 'tfidf', 'id': 'document', 'level_1': 'term', 'level_2': 'term'})
+    # tfidf_df = (tfidf_df[tfidf_df["tfidf"] > 0.0]).sort_values(by=['tfidf'], ascending=[False])
+
+    # # tokenize records patterns and count frequency
+    # for i in tqdm(range(X.shape[0])):
+    #     attr_i = str(X[attr][i])
+    #     pattern = re.findall("\w+\s\w+\d+", attr_i.lower())  # look for patterns like "thinkpad x1"
+    #     if len(pattern) == 0:
+    #         tokens[i] = []
+    #         continue
+    #
+    #     tokens[i] = pattern
+    #
+    #     for token in pattern:
+    #         num_words += 1
+    #         frequency = doc_frequencies.get(token)
+    #         if frequency is not None:
+    #             doc_frequencies[token] = [frequency[0] + 1]
+    #         else:
+    #             doc_frequencies[token] = [1]
 
     # calculate tf-idf values
-    tf_idf_avg_list = np.zeros((X.shape[0],), dtype=object)
-    for i in tqdm(range(X.shape[0])):
-        sum, count = 0, 0
-        for token in tokens[i]:
-            tf = doc_frequencies.get(token)[0] / num_words
-            idf = np.log(X.shape[0] / (doc_frequencies.get(token)[0] + 1))
-
-            tf_idf = tf * idf
-            frequencies = doc_frequencies.get(token)
-            frequencies.append(tf_idf)
-            doc_frequencies[token] = frequencies
-            if doc_frequencies[token][0] > 1:
-                sum += tf_idf
-                count += 1
-
-        tf_idf_avg = sum / count if count > 0 else 0
-        tf_idf_avg_list[i] = tf_idf_avg
+    # tf_idf_avg_list = np.zeros((X.shape[0],), dtype=object)
+    # for i in tqdm(range(X.shape[0])):
+    #     sum, count = 0, 0
+    #     for token in tokens[i]:
+    #         tf = doc_frequencies.get(token)[0] / num_words
+    #         idf = np.log(X.shape[0] / (doc_frequencies.get(token)[0] + 1))
+    #
+    #         tf_idf = tf * idf
+    #         frequencies = doc_frequencies.get(token)
+    #         frequencies.append(tf_idf)
+    #         doc_frequencies[token] = frequencies
+    #         if doc_frequencies[token][0] > 1:
+    #             sum += tf_idf
+    #             count += 1
+    #
+    #     tf_idf_avg = sum / count if count > 0 else 0
+    #     tf_idf_avg_list[i] = tf_idf_avg
 
     # block values by their high value tokens
+
+    # Reduce by droping 0.0 cols
+
+
     blocks = dict()
-    for i in tqdm(range(X.shape[0])):
-        for token in tokens[i]:
-            if doc_frequencies[token][1] > tf_idf_avg_list[i]:
-                record_list = [i]
+
+    for i in tqdm(range(tfidf_df.shape[0]-1)):
+        for j in tqdm(range(tfidf_df.shape[1]-1)):
+            if tfidf_df.iloc[i, j] > 0 and tfidf_df.iloc[i, j] > tfidf_df['avg'].iloc[i]:
+                record_list = [tfidf_df.index.values[i]]
+                token = tfidf_df.columns[j]
                 if token in blocks:
                     record_list.extend(blocks.get(token))
 
                 blocks[token] = record_list
-    doc_frequencies.clear()
+    # doc_frequencies.clear()
 
     # improve block collection as an index, create index of weights for record pairs
     weights_pairs = []
@@ -77,6 +97,7 @@ def block_with_attr(X, id, attr):
 
             r1, r2 = tokens[r1_id], tokens[r2_id]
             if r1 != r2:
+                # TODO Jaccard similarity or Levenstein distance
                 r1_original_id, r2_orirginal_id = X[id][r1_id], X[id][r2_id]
                 weight = len(intersection(r1, r2))
                 weights_pairs.append([weight, r1_original_id, r2_orirginal_id])
@@ -84,11 +105,10 @@ def block_with_attr(X, id, attr):
                 num_pairs += 1
                 sum_weights += weight
     blocks.clear()
-    tokens = np.empty(1)
+    # tokens = np.empty(1)
 
     weight_avg = sum_weights / num_pairs if num_pairs > 0 else 0
 
-    # TODO Jaccard similarity or Levenstein distance
     pairs = ([tuple(elem[1:3]) if elem[1] < elem[2] else (elem[2], elem[1]) for elem in tqdm(weights_pairs) if not elem[0] < weight_avg])
 
     return pairs
@@ -142,23 +162,22 @@ X2 = pd.read_csv("X2.csv")
 # print("X1 size " + str(len(X1)))
 # print("X2 size " + str(len(X2)))
 
-X1_blocks = naive_blocking(X1, 20)
-# X2_blocks = naive_blocking(X2, 40)
-X2_blocks = group_and_blocking(X2, ["brand"])
-
-# perform blocking
-X1_block_pairs = [block_with_attr(X_tmp.reset_index(), id="id", attr="title") for X_tmp in X1_blocks]
-X2_block_pairs = [block_with_attr(X_tmp.reset_index(), id="id", attr="name") for _, X_tmp in X2_blocks]
-
-X1_block_pairs = [pairs for pairs in X1_block_pairs if pairs]
-X2_block_pairs = [pairs for pairs in X2_block_pairs if pairs]
-
-X1_candidate_pairs = np.vstack(X1_block_pairs).tolist()
-X2_candidate_pairs = np.concatenate(X2_block_pairs, axis=0).tolist()
+# X1_blocks = naive_blocking(X1, 20)
+# X2_blocks = group_and_blocking(X2, ["brand"])
 
 # # perform blocking
-# X1_candidate_pairs = block_with_attr(X1, id="id", attr="title")
-# X2_candidate_pairs = block_with_attr(X2, id="id", attr="name")
+# X1_block_pairs = [block_with_attr(X_tmp.reset_index(), id="id", attr="title") for X_tmp in X1_blocks]
+# X2_block_pairs = [block_with_attr(X_tmp.reset_index(), id="id", attr="name") for _, X_tmp in X2_blocks]
+#
+# X1_block_pairs = [pairs for pairs in X1_block_pairs if pairs]
+# X2_block_pairs = [pairs for pairs in X2_block_pairs if pairs]
+#
+# X1_candidate_pairs = np.vstack(X1_block_pairs).tolist()
+# X2_candidate_pairs = np.concatenate(X2_block_pairs, axis=0).tolist()
+
+# perform blocking
+X1_candidate_pairs = block_with_attr(X1, id="id", attr="title")
+X2_candidate_pairs = block_with_attr(X2, id="id", attr="name")
 
 # save results
 save_output(X1_candidate_pairs, X2_candidate_pairs)
