@@ -8,6 +8,7 @@ import timeit
 
 import numpy as np
 import pandas as pd
+from gensim.models import Word2Vec
 
 from scipy.sparse import csr_matrix
 from sparse_dot_topn import awesome_cossim_topn
@@ -20,6 +21,16 @@ IDY = "rid"
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+
+def split_sentence(x: list):
+    sentences_split = list()
+    count = 0
+    for y in x:
+        y_ = y.split()
+        count += len(y_)
+        sentences_split.append(y_)
+    return sentences_split, count
 
 
 def recall(true, prediction):
@@ -182,6 +193,23 @@ def batch_gen(data: pd.DataFrame, attr: str):
         yield df_chunk["id"], df_chunk[attr]
 
 
+def get_trained_embeddings(x):
+    trained_embeddings = dict()
+    sen, count = split_sentence(x)
+    model = Word2Vec(
+        sentences=sen,
+        sg=1,
+        size=100,
+        workers=os.cpu_count(),
+        min_count=1,
+        max_vocab_size=count,
+        window=5,
+    )
+    for vocab in list(model.wv.vocab):
+        trained_embeddings[vocab] = model.wv.get_vector(vocab)
+    return trained_embeddings
+
+
 def block_with_attr(X, attr):  # replace with your logic.
     """
     This function performs blocking using attr
@@ -190,8 +218,8 @@ def block_with_attr(X, attr):  # replace with your logic.
     :return: candidate set of tuple pairs
     """
     X = pre_process(X)
-    glove_embeddings = get_glove_embeddings(r"glove.6B.300d.txt")
-
+    # glove_embeddings = get_glove_embeddings(r"glove.6B.300d.txt")
+    trained_embeddings = get_trained_embeddings(X[attr].values.tolist())
     # build index from patterns to tuples
     embeddings = list()
     embeddings_ids = list()
@@ -199,7 +227,7 @@ def block_with_attr(X, attr):  # replace with your logic.
     start = timeit.default_timer()
 
     for ids, result in map_async(
-        batch_gen(X, attr), sentence_embedding, glove_embeddings
+        batch_gen(X, attr), sentence_embedding, trained_embeddings
     ):
         embeddings.append(result)
         embeddings_ids.append(ids)
