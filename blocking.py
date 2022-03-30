@@ -71,18 +71,6 @@ def map_async(iterable, func, model, max_workers=os.cpu_count()):
     return async_iterator()
 
 
-def l2_norm(x):
-    return np.sqrt(np.sum(x ** 2))
-
-
-def div_norm(x):
-    norm_value = l2_norm(x)
-    if norm_value > 0:
-        return x * (1.0 / norm_value)
-    else:
-        return x
-
-
 def sentence_embedding(embeddings, data: str, ids):
     """
 
