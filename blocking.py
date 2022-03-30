@@ -7,6 +7,7 @@ import timeit
 
 import numpy as np
 import pandas as pd
+
 from sklearn.feature_extraction.text import HashingVectorizer
 
 from tqdm import tqdm

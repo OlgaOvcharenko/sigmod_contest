@@ -5,6 +5,5 @@ pytz==2021.3
 six==1.16.0
 tqdm==4.63.0
 scipy==1.8.0
-sparse_dot_topn==0.3.1
-tensorflow_hun==0.12.0
 reprozip==1.1
+scikit-learn==1.0.2
