@@ -1,4 +1,3 @@
-import io
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -8,49 +7,29 @@ import timeit
 
 import numpy as np
 import pandas as pd
-from gensim.models import Word2Vec
 
-from scipy.sparse import csr_matrix
-from sparse_dot_topn import awesome_cossim_topn
+from sklearn.feature_extraction.text import HashingVectorizer
+
 from tqdm import tqdm
-
+from scipy.spatial.distance import pdist, squareform
 
 SIMILARITY = "similarity"
 IDX = "lid"
 IDY = "rid"
+GLOVE_PTH = "glove.6B.300d.txt"
 
+logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-
-def split_sentence(x: list):
-    sentences_split = list()
-    count = 0
-    for y in x:
-        y_ = y.split()
-        count += len(y_)
-        sentences_split.append(y_)
-    return sentences_split, count
 
 
 def recall(true, prediction):
     return (len(set(true).intersection(set(prediction)))) / len(true)
 
 
-def load_vectors(fname):
-    fin = io.open(fname, "r", encoding="utf-8", newline="\n", errors="ignore")
-    n, d = map(int, fin.readline().split())
-    data = {}
-    for line in fin:
-        tokens = line.rstrip().split(" ")
-        data[tokens[0]] = map(float, tokens[1:])
-    return data
-
-
-def get_glove_embeddings(pth):
+def get_glove_embeddings():
     logger.info(f"LOADING GLOVE EMBEDDING")
     embeddings_index = dict()
-    with open(pth, encoding="utf-8") as f:
+    with open(GLOVE_PTH, encoding="utf-8") as f:
         for line in f:
             values = line.split()
             word = values[0]
@@ -74,10 +53,10 @@ def map_async(iterable, func, model, max_workers=os.cpu_count()):
             ):
                 try:
                     ids, data = next(iterator)
-                    logger.info(f"Submitting Task")
+                    logger.debug(f"Submitting Task")
                     pending_results.append(thread_pool.submit(func, model, data, ids))
                 except StopIteration:
-                    logger.info(f"Submitted all task")
+                    logger.debug(f"Submitted all task")
                     has_input = False
 
             # If there are no pending results, the generator is done
@@ -92,18 +71,6 @@ def map_async(iterable, func, model, max_workers=os.cpu_count()):
                 time.sleep(0.01)
 
     return async_iterator()
-
-
-def l2_norm(x):
-    return np.sqrt(np.sum(x ** 2))
-
-
-def div_norm(x):
-    norm_value = l2_norm(x)
-    if norm_value > 0:
-        return x * (1.0 / norm_value)
-    else:
-        return x
 
 
 def sentence_embedding(embeddings, data: str, ids):
@@ -124,36 +91,40 @@ def sentence_embedding(embeddings, data: str, ids):
     }
     """
     running_embedding = list()
+    # present_embedding_words = list(set(data.split()).intersection(set(embeddings.keys())))
+    # for word in present_embedding_words:
+    #     running_embedding.append(embeddings[word])
     for word in data.split():
         try:
             running_embedding.append(embeddings[word])
         except KeyError:
-            logger.error(f"NO EMBEDDING FOUND FOR {word}")
+            logger.debug(f"NO EMBEDDING FOUND FOR {word}")
     u_min = np.min(np.array(running_embedding), axis=0)
     u_max = np.max(np.array(running_embedding), axis=0)
     return ids, np.concatenate((u_min, u_max), axis=-1)
 
 
-def cosine_similarity(
-    a: csr_matrix, b: csr_matrix, ntop: int = 10, lower_bound: float = 0.80
-) -> csr_matrix:
-    # https://github.com/ing-bank/sparse_dot_topn
-    return awesome_cossim_topn(a, b, ntop=ntop, lower_bound=lower_bound)
+# def cosine_similarity(
+#     a: csr_matrix, b: csr_matrix, ntop: int = 10, lower_bound: float = 0.80
+# ) -> csr_matrix:
+#     # https://github.com/ing-bank/sparse_dot_topn
+#     return awesome_cossim_topn(a, b, ntop=ntop, lower_bound=lower_bound)
 
 
 def generate_similarity_df(
-    sparse_matrix: csr_matrix, match_over: pd.Series, top=None
+    similarity_matrix: np.ndarray, match_over: pd.Series
 ) -> pd.DataFrame:
-    sparse_matrix_non_zeros = sparse_matrix.nonzero()
+    similarity_upper_tri_indices = np.nonzero(np.triu(similarity_matrix))
+    similarity_upper_tri = similarity_matrix[similarity_upper_tri_indices]
 
-    _rows = sparse_matrix_non_zeros[0]
-    _cols = sparse_matrix_non_zeros[1]
+    _rows = similarity_upper_tri_indices[0]
+    _cols = similarity_upper_tri_indices[1]
 
     df = pd.DataFrame(
         {
-            IDX: match_over[_rows].values[:top],
-            IDY: match_over[_cols].values[:top],
-            SIMILARITY: sparse_matrix.data[:top],
+            IDX: match_over[_rows].values,
+            IDY: match_over[_cols].values,
+            SIMILARITY: similarity_upper_tri,
         }
     )
 
@@ -165,20 +136,14 @@ def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_matched_pair(
-    vector_representation: csr_matrix,
+    vector_representation: np.ndarray,
     similarity_over: pd.Series,
-    top_matches: int = 20,
-    confidence_score: float = 0.80,
 ):
-    similarity_matrix = cosine_similarity(
-        a=vector_representation,
-        b=vector_representation.T,
-        ntop=top_matches,
-        lower_bound=confidence_score,
-    )
+    similarity_matrix = 1 - squareform(pdist(vector_representation, metric="cosine"))
     matched_pair_id = generate_similarity_df(similarity_matrix, similarity_over)
     matched_pair_id = remove_duplicates(df=matched_pair_id)
     matched_pair_id.sort_values(by=[SIMILARITY], inplace=True, ascending=False)
+    matched_pair_id = matched_pair_id[matched_pair_id[SIMILARITY] > 0.1]
     return matched_pair_id
 
 
@@ -193,33 +158,22 @@ def batch_gen(data: pd.DataFrame, attr: str):
         yield df_chunk["id"], df_chunk[attr]
 
 
-def get_trained_embeddings(x):
-    trained_embeddings = dict()
-    sen, count = split_sentence(x)
-    model = Word2Vec(
-        sentences=sen,
-        sg=1,
-        size=100,
-        workers=os.cpu_count(),
-        min_count=1,
-        max_vocab_size=count,
-        window=5,
-    )
-    for vocab in list(model.wv.vocab):
-        trained_embeddings[vocab] = model.wv.get_vector(vocab)
-    return trained_embeddings
+def tfidf_hashed(x, n_features):
+    return HashingVectorizer(n_features=n_features).transform(x)
 
 
-def block_with_attr(X, attr):  # replace with your logic.
+def block_with_attr(X, glove_embeddings, attr):  # replace with your logic.
     """
     This function performs blocking using attr
+    :param glove_embeddings:
     :param X: dataframe
     :param attr: attribute used for blocking
     :return: candidate set of tuple pairs
     """
+    logger.info(f"EXECUTION STARTED")
+
     X = pre_process(X)
-    # glove_embeddings = get_glove_embeddings(r"glove.6B.300d.txt")
-    trained_embeddings = get_trained_embeddings(X[attr].values.tolist())
+    # X = X.append(X * 1000, ignore_index=True)
     # build index from patterns to tuples
     embeddings = list()
     embeddings_ids = list()
@@ -227,30 +181,22 @@ def block_with_attr(X, attr):  # replace with your logic.
     start = timeit.default_timer()
 
     for ids, result in map_async(
-        batch_gen(X, attr), sentence_embedding, trained_embeddings
+        batch_gen(X, attr), sentence_embedding, glove_embeddings
     ):
         embeddings.append(result)
         embeddings_ids.append(ids)
-        logger.info(f"Got Result")
-    stop = timeit.default_timer()
-    logger.info(f"EXECUTION TIME {stop - start}")
+        logger.debug(f"Got Result")
+
     embeddings = np.array(embeddings)
 
-    vector_representation = csr_matrix(embeddings)
     matched_pair_id = remove_duplicates(
-        get_matched_pair(
-            vector_representation,
-            similarity_over=pd.Series(embeddings_ids),
-            top_matches=30,
-            confidence_score=0.60,
-        )
+        get_matched_pair(embeddings, similarity_over=pd.Series(embeddings_ids))
     )
+
     # UNCOMMENT TO DEBUG
     # matched_pair_str = get_matched_pair(
-    #     vector_representation,
+    #     embeddings,
     #     similarity_over=X[attr],
-    #     top_matches=30,
-    #     confidence_score=0.80,
     # )
     # matched_pair_str.to_csv("debug.csv")
 
@@ -267,6 +213,8 @@ def block_with_attr(X, attr):  # replace with your logic.
         else:
             candidate_pairs_real_ids.append((real_id2, real_id1))
 
+    stop = timeit.default_timer()
+    logger.info(f"EXECUTION TIME {stop - start}")
     return candidate_pairs_real_ids
 
 
@@ -307,9 +255,10 @@ def save_output(
 X1 = pd.read_csv("X1.csv")
 X2 = pd.read_csv("X2.csv")
 
+pre_trained_embeddings = get_glove_embeddings()
 # perform blocking
-X1_candidate_pairs = block_with_attr(X1, attr="title")
-X2_candidate_pairs = block_with_attr(X2, attr="name")
+X1_candidate_pairs = block_with_attr(X1, pre_trained_embeddings, attr="title")
+X2_candidate_pairs = block_with_attr(X2, pre_trained_embeddings, attr="name")
 
 print(
     f"RECALL FOR X1 - {recall(pd.read_csv('Y1.csv').to_records(index=False).tolist(), X1_candidate_pairs)}"
