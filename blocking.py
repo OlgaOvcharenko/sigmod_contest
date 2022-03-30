@@ -7,6 +7,7 @@ import timeit
 
 import numpy as np
 import pandas as pd
+from sklearn.feature_extraction.text import HashingVectorizer
 
 from tqdm import tqdm
 from scipy.spatial.distance import pdist, squareform
@@ -137,10 +138,11 @@ def get_matched_pair(
     vector_representation: np.ndarray,
     similarity_over: pd.Series,
 ):
-    similarity_matrix = squareform(pdist(vector_representation, metric="cosine"))
+    similarity_matrix = 1 - squareform(pdist(vector_representation, metric="cosine"))
     matched_pair_id = generate_similarity_df(similarity_matrix, similarity_over)
     matched_pair_id = remove_duplicates(df=matched_pair_id)
     matched_pair_id.sort_values(by=[SIMILARITY], inplace=True, ascending=False)
+    matched_pair_id = matched_pair_id[matched_pair_id[SIMILARITY] > 0.1]
     return matched_pair_id
 
 
@@ -153,6 +155,10 @@ def pre_process(df: pd.DataFrame):
 def batch_gen(data: pd.DataFrame, attr: str):
     for i, df_chunk in data.iterrows():
         yield df_chunk["id"], df_chunk[attr]
+
+
+def tfidf_hashed(x, n_features):
+    return HashingVectorizer(n_features=n_features).transform(x)
 
 
 def block_with_attr(X, glove_embeddings, attr):  # replace with your logic.
@@ -185,6 +191,7 @@ def block_with_attr(X, glove_embeddings, attr):  # replace with your logic.
     matched_pair_id = remove_duplicates(
         get_matched_pair(embeddings, similarity_over=pd.Series(embeddings_ids))
     )
+
     # UNCOMMENT TO DEBUG
     # matched_pair_str = get_matched_pair(
     #     embeddings,
