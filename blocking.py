@@ -4,15 +4,18 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import nltk
+nltk.download('omw-1.4')
+from nltk.stem import WordNetLemmatizer
 
 
 def block_with_attr(X, id, attr):
+    wln = WordNetLemmatizer()
+
     tokens = np.zeros((X.shape[0],), dtype=object)
-    doc_frequencies = dict()
+    doc_frequencies, frequencies_list, token_row_indices = dict(), list(), list()
 
-    # TODO normalization
-
-    num_words = 0
+    num_words, count_tokens = 0, 0
 
     # tokenize records patterns and count frequency
     for i in tqdm(range(X.shape[0])):
@@ -22,40 +25,46 @@ def block_with_attr(X, id, attr):
             tokens[i] = []
             continue
 
+        # lemmatization
+        pattern = [wln.lemmatize(p) for p in pattern]
         tokens[i] = pattern
 
         for token in pattern:
-            num_words += 1
             frequency = doc_frequencies.get(token)
             if frequency is not None:
-                doc_frequencies[token] = [frequency[0] + 1]
+                frequencies_list[frequency] = frequencies_list[frequency] + 1
+
             else:
-                doc_frequencies[token] = [1]
+                doc_frequencies[token] = count_tokens
+                token_row_indices.append(i)
+                frequencies_list.append(1)
+                count_tokens += 1
 
-    # calculate tf-idf values
-    tf_idf_avg_list = np.zeros((X.shape[0],), dtype=object)
-    for i in tqdm(range(X.shape[0])):
-        sum, count = 0, 0
-        for token in tokens[i]:
-            tf = doc_frequencies.get(token)[0] / num_words
-            idf = np.log(X.shape[0] / (doc_frequencies.get(token)[0] + 1))
+        num_words += 1  # FIXME maybe move back to patterns only
 
-            tf_idf = tf * idf
-            frequencies = doc_frequencies.get(token)
-            frequencies.append(tf_idf)
-            doc_frequencies[token] = frequencies
-            if doc_frequencies[token][0] > 1:
-                sum += tf_idf
-                count += 1
+    frequencies_list, token_row_indices = np.array(frequencies_list), np.array(token_row_indices, dtype=int)
+    tf, idf = frequencies_list / num_words, np.log(X.shape[0] / (frequencies_list + 1))
+    tf_idfs = tf * idf
 
-        tf_idf_avg = sum / count if count > 0 else 0
-        tf_idf_avg_list[i] = tf_idf_avg
+    non_unique_indices = (frequencies_list > 1)
+    k = token_row_indices[frequencies_list > 1]
+    # k = np.vstack([token_row_indices[non_unique_indices], tf_idfs[non_unique_indices]]).transpose()
+
+    tfidf_row_non_unique_avg = pd.DataFrame(np.vstack([token_row_indices[non_unique_indices], tf_idfs[non_unique_indices]]).transpose(),
+                                   columns=["rid", "tfidf"]).groupby("rid").mean()
 
     # block values by their high value tokens
     blocks = dict()
-    for i in tqdm(range(X.shape[0])):
+    for i in tqdm(range(tokens.shape[0])):
         for token in tokens[i]:
-            if doc_frequencies[token][1] > tf_idf_avg_list[i]:
+            token_index = doc_frequencies[token]
+
+            try:
+                tfidf_row_avg = tfidf_row_non_unique_avg.loc[i][0]
+            except KeyError:
+                tfidf_row_avg = 0
+
+            if tf_idfs[token_index] > tfidf_row_avg:
                 record_list = [i]
                 if token in blocks:
                     record_list.extend(blocks.get(token))
