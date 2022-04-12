@@ -1,6 +1,9 @@
+import csv
+import os
 import re
 import multiprocessing
 import time
+from itertools import combinations
 
 from joblib import Parallel, delayed
 import numpy as np
@@ -11,9 +14,14 @@ from tqdm import tqdm
 # nltk.download('wordnet')
 # from nltk.stem import WordNetLemmatizer
 
+candidate_size1, candidate_size2 = 0, 0
 
-def block_with_attr(X, id, attr):
-    # tokens = np.zeros((X.shape[0],), dtype=object)
+def block_with_attr(X, id, attr, is_X1:bool):
+    global start
+    if time.time() - start > 1500:
+        return
+
+    tokens = np.zeros((X.shape[0],), dtype=object)
     doc_frequencies, frequencies_list, token_row_indices = dict(), list(), list()
     token_row_indices_append, frequencies_list_append = token_row_indices.append, frequencies_list.append
 
@@ -24,10 +32,10 @@ def block_with_attr(X, id, attr):
         attr_i = str(X[attr][i])
         pattern = re.findall("\w+\s\w+\d+", attr_i.lower())  # look for patterns like "thinkpad x1"
         if len(pattern) == 0:
-            # tokens[i] = []
+            tokens[i] = []
             continue
 
-        # tokens[i] = pattern
+        tokens[i] = pattern
 
         for token in pattern:
             frequency = doc_frequencies.get(token)
@@ -40,7 +48,7 @@ def block_with_attr(X, id, attr):
                 frequencies_list_append(1)
                 count_tokens += 1
 
-        num_words += 1  # FIXME maybe move back to patterns only
+        num_words += 1
 
     frequencies_list, token_row_indices = np.array(frequencies_list), np.array(token_row_indices, dtype=int)
     tf, idf = frequencies_list / num_words, np.log(X.shape[0] / (frequencies_list + 1))
@@ -52,62 +60,82 @@ def block_with_attr(X, id, attr):
 
     # block values by their high value tokens
     blocks = dict()
-    # for i in tqdm(range(tokens.shape[0])):
-    #     for token in tokens[i]:
-    #         token_index = doc_frequencies[token]
-    #
-    #         try:
-    #             tfidf_row_avg = tfidf_row_non_unique_avg.loc[i][0]
-    #         except KeyError:
-    #             tfidf_row_avg = 0
-    #
-    #         if tf_idfs[token_index] > tfidf_row_avg:
-    #             record_list = [i]
-    #             if token in blocks:
-    #                 record_list.extend(blocks.get(token))
-    #
-    #             blocks[token] = record_list
+    for i in tqdm(range(tokens.shape[0])):
+        for token in tokens[i]:
+            token_index = doc_frequencies[token]
 
-    for token_id in tqdm(doc_frequencies.items()):
-        token, token_id = token_id[0], token_id[1]
-        row_id = token_row_indices[token_id]
-        try:
-            tfidf_row_avg = tfidf_row_non_unique_avg.loc[row_id][0]
-        except KeyError:
-            tfidf_row_avg = 0
+            try:
+                tfidf_row_avg = tfidf_row_non_unique_avg.loc[i][0]
+            except KeyError:
+                tfidf_row_avg = 0
 
-        if tf_idfs[token_id] > tfidf_row_avg:
-            record_list = [row_id]
-            if token in blocks:
-                record_list.extend(blocks.get(token))
+            if tf_idfs[token_index] > tfidf_row_avg:
+                record_list = [i]
+                if token in blocks:
+                    record_list.extend(blocks.get(token))
 
-            blocks[token] = record_list
+                blocks[token] = record_list
 
     doc_frequencies.clear()
 
     # improve block collection as an index, create index of weights for record pairs
-    pairs = []  # FIXME the slowest
-    # for block in tqdm(blocks.items()):
-    #     block_records = block[1]
-    #     all_pairs = [(block_records[i], block_records[j]) for i in range(len(block_records))
-    #                  for j in range(i+1, len(block_records))]
-    #
-    #     pairs.extend([(X[id][r1_id], X[id][r2_id]) if X[id][r1_id] < X[id][r2_id] else (X[id][r1_id], X[id][r2_id])
-    #                   for r1_id, r2_id in all_pairs if tokens[r1_id] != tokens[r2_id]])
-
-    for block in tqdm(blocks.items()):
-        block_records = block[1]
-        all_pairs = [(block_records[i], block_records[j]) for i in range(len(block_records))
-                     for j in range(i+1, len(block_records))]
-
-        pairs.extend([(X[id][r1_id], X[id][r2_id]) if X[id][r1_id] < X[id][r2_id] else (X[id][r1_id], X[id][r2_id])
-                      for r1_id, r2_id in all_pairs])
-
-
+    pairs = []
+    pairs_extend = pairs.extend
+    blocks_list = list(blocks.values())
     blocks.clear()
+    for block_records in tqdm(blocks_list):
+        all_pairs = [(X[id][a], X[id][b]) if X[id][a] < X[id][b] else (X[id][b], X[id][a])
+                     for idx, a in enumerate(block_records) for b in block_records[idx + 1:] if X[id][b] != X[id][a]]
+        pairs_extend(all_pairs)
+
+    # FIXME weights matching to add back
     tokens = np.empty(1)
 
-    return pairs
+    write_to_csv(pairs, is_X1)
+
+    global candidate_size1, candidate_size2
+    candidate_size1 += len(pairs) if is_X1 else 0
+    candidate_size2 += len(pairs) if not is_X1 else 0
+
+    return
+
+
+def write_to_csv(X_candidate_pairs, is_X1: bool, out_file: str = "output.csv"):
+    # make sure to include exactly 1000000 pairs for dataset X1 and 2000000 pairs for dataset X2
+    expected_cand_size_X1 = 1000000
+    expected_cand_size_X2 = 2000000
+
+    if is_X1 and candidate_size1 + len(X_candidate_pairs) > expected_cand_size_X1:
+        X_candidate_pairs = X_candidate_pairs[:expected_cand_size_X1]
+    if not is_X1 and candidate_size2 + len(X_candidate_pairs) > expected_cand_size_X2:
+        X_candidate_pairs = X_candidate_pairs[:expected_cand_size_X2]
+
+    with open(out_file, "a") as out:
+        csv_out = csv.writer(out)
+        csv_out.writerows(X_candidate_pairs)
+
+
+def fill_output_file_with_0(is_X1: bool, out_file: str = "output.csv"):
+    global candidate_size1, candidate_size2
+    expected_cand_size_X1 = 1000000
+    expected_cand_size_X2 = 2000000
+
+    X_extended = []
+    if is_X1 and candidate_size1 < expected_cand_size_X1:
+        X_extended = [(0, 0)] * (expected_cand_size_X1 - candidate_size1)
+    if not is_X1 and candidate_size2 < expected_cand_size_X2:
+        X_extended = [(0, 0)] * (expected_cand_size_X2 - candidate_size2)
+
+    with open(out_file, "a") as out:
+        csv_out = csv.writer(out)
+        csv_out.writerows(X_extended)
+
+
+def fill_output_file():
+    file1, file2 = open("out1.csv") if os.path.exists("out1.csv") else [], \
+                   open("out2.csv") if os.path.exists("out2.csv") else []
+    out1, out2 = list(csv.reader(file1)) if file1 else file1, list(csv.reader(file2)) if file2 else file2
+    save_output(out1, out2)
 
 
 def save_output(X1_candidate_pairs, 
@@ -149,16 +177,18 @@ def naive_blocking(X, num_blocks):
 def group_and_blocking(X, group_by_cols):
     return X.groupby(group_by_cols)
 
-
+if os.path.exists("output.csv"):
+    os.remove("output.csv")
 start = time.time()
 
 # read the datasets
 X1 = pd.read_csv("X1.csv")
 X2 = pd.read_csv("X2.csv")
 
-# X1 = duplicate_with_new_id(X1, 50)
-# print("X1 size " + str(len(X1)))
-# print("X2 size " + str(len(X2)))
+# X1 = duplicate_with_new_id(X1, 10)
+# X2 = duplicate_with_new_id(X2, 10)
+print("X1 size " + str(len(X1)))
+print("X2 size " + str(len(X2)))
 
 X1_blocks = naive_blocking(X1, 50)
 X2_blocks = naive_blocking(X2, 80)
@@ -167,33 +197,20 @@ X2_blocks = naive_blocking(X2, 80)
 # perform blocking
 num_cores = multiprocessing.cpu_count()
 
-X1_block_pairs = Parallel(n_jobs=num_cores)(delayed(block_with_attr)(i.reset_index(), id="id", attr="title") for i in X1_blocks)
+_ = Parallel(n_jobs=10, require='sharedmem')(delayed(block_with_attr)(i.reset_index(), id="id", attr="title", is_X1=True) for i in X1_blocks)
 # X2_block_pairs = Parallel(n_jobs=num_cores)(delayed(block_with_attr)(i.reset_index(), id="id", attr="name") for _, i in X2_blocks)
-X2_block_pairs = Parallel(n_jobs=num_cores)(delayed(block_with_attr)(i.reset_index(), id="id", attr="name") for i in X2_blocks)
+fill_output_file_with_0(True)
+_ = Parallel(n_jobs=10, require='sharedmem')(delayed(block_with_attr)(i.reset_index(), id="id", attr="name", is_X1=False) for i in X2_blocks)
+fill_output_file_with_0(False)
 
-# with Parallel(n_jobs=2) as parallel:
-#     accumulator = []
-#     n_iter = 0
+# X1_block_pairs = [pairs for pairs in X1_block_pairs if pairs]
+# X2_block_pairs = [pairs for pairs in X2_block_pairs if pairs]
+
+# X1_candidate_pairs = np.vstack(X1_block_pairs).tolist() if len(X1_block_pairs) > 0 else []
+# X2_candidate_pairs = np.concatenate(X2_block_pairs, axis=0).tolist() if len(X1_block_pairs) > 0 else []
 #
-#     while len(accumulator) < len(X1_blocks):
-#         results = parallel(delayed(block_with_attr)(i.reset_index(), id="id", attr="title") for i in X1_blocks)
-#         if results:
-#             accumulator.extend(results)  # synchronization barrier
-#         n_iter += 1
-#
-# X1_block_pairs = accumulator
+# # save results
+# save_output(X1_candidate_pairs, X2_candidate_pairs)
 
-# X1_block_pairs = [block_with_attr(X_tmp.reset_index(), id="id", attr="title") for X_tmp in X1_blocks]
-# X2_block_pairs = [block_with_attr(X_tmp.reset_index(), id="id", attr="name") for _, X_tmp in X2_blocks]
-
-X1_block_pairs = [pairs for pairs in X1_block_pairs if pairs]
-X2_block_pairs = [pairs for pairs in X2_block_pairs if pairs]
-
-X1_candidate_pairs = np.vstack(X1_block_pairs).tolist() if len(X1_block_pairs) > 0 else []
-X2_candidate_pairs = np.concatenate(X2_block_pairs, axis=0).tolist() if len(X1_block_pairs) > 0 else []
-
-# save results
-save_output(X1_candidate_pairs, X2_candidate_pairs)
-
-# end = time.time()
-# print(f"Runtime of the program is {end - start}")
+end = time.time()
+print(f"Runtime of the program is {end - start}")
