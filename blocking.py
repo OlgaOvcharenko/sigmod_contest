@@ -30,11 +30,11 @@ def block_with_attr(X, id, attr, is_X1:bool):
     # tokenize records patterns and count frequency
     for i in tqdm(range(X.shape[0])):
         attr_i = str(X[attr][i])
-        pattern = re.findall("\w+\s\w+\d+", attr_i.lower())  # look for patterns like "thinkpad x1"
+        pattern = re.findall("\w+\s\w+\d+", attr_i)  # look for patterns like "thinkpad x1"
         if len(pattern) == 0:
             tokens[i] = []
             continue
-
+        pattern = [p.lower() for p in pattern]
         tokens[i] = pattern
 
         for token in pattern:
@@ -110,11 +110,6 @@ def block_with_attr(X, id, attr, is_X1:bool):
     pairs = (weights_pairs[weights_pairs[:, 0] >= weight_avg])[:, 1:3]
 
     write_to_csv(pairs, is_X1)
-
-    global candidate_size1, candidate_size2
-    candidate_size1 += len(pairs) if is_X1 else 0
-    candidate_size2 += len(pairs) if not is_X1 else 0
-
     return
 
 
@@ -123,14 +118,21 @@ def write_to_csv(X_candidate_pairs, is_X1: bool, out_file: str = "output.csv"):
     expected_cand_size_X1 = 1000000
     expected_cand_size_X2 = 2000000
 
-    if is_X1 and candidate_size1 + len(X_candidate_pairs) > expected_cand_size_X1:
-        X_candidate_pairs = X_candidate_pairs[:expected_cand_size_X1]
-    if not is_X1 and candidate_size2 + len(X_candidate_pairs) > expected_cand_size_X2:
-        X_candidate_pairs = X_candidate_pairs[:expected_cand_size_X2]
+    global candidate_size1, candidate_size2
 
-    with open(out_file, "a") as out:
-        csv_out = csv.writer(out)
-        csv_out.writerows(X_candidate_pairs)
+    if (is_X1 and candidate_size1 >= expected_cand_size_X1) or (not is_X1 and candidate_size2 >= expected_cand_size_X2):
+        pass
+    else:
+        if is_X1 and (candidate_size1 + len(X_candidate_pairs)) > expected_cand_size_X1:
+            X_candidate_pairs = X_candidate_pairs[:expected_cand_size_X1-candidate_size1]
+        if not is_X1 and (candidate_size2 + len(X_candidate_pairs)) > expected_cand_size_X2:
+            X_candidate_pairs = X_candidate_pairs[:expected_cand_size_X2-candidate_size2]
+
+        candidate_size1 += len(X_candidate_pairs) if is_X1 else 0
+        candidate_size2 += len(X_candidate_pairs) if not is_X1 else 0
+        with open(out_file, "a") as out:
+            csv_out = csv.writer(out)
+            csv_out.writerows(X_candidate_pairs)
 
 
 def fill_output_file_with_0(is_X1: bool, out_file: str = "output.csv"):
@@ -216,7 +218,7 @@ X2_blocks = naive_blocking(X2, 50)
 # perform blocking
 num_cores = multiprocessing.cpu_count()
 
-# FIXME hardcorded num jobs
+# FIXME hardcoded num jobs
 _ = Parallel(n_jobs=16, require='sharedmem')(delayed(block_with_attr)(i.reset_index(), id="id", attr="title", is_X1=True) for i in X1_blocks)
 # X2_block_pairs = Parallel(n_jobs=num_cores)(delayed(block_with_attr)(i.reset_index(), id="id", attr="name") for _, i in X2_blocks)
 fill_output_file_with_0(True)
