@@ -77,19 +77,37 @@ def block_with_attr(X, id, attr, is_X1:bool):
                 blocks[token] = record_list
 
     doc_frequencies.clear()
+    tokens = np.empty(1)
 
     # improve block collection as an index, create index of weights for record pairs
     pairs = []
     pairs_extend = pairs.extend
     blocks_list = list(blocks.values())
     blocks.clear()
-    for block_records in tqdm(blocks_list):
-        all_pairs = [(X[id][a], X[id][b]) if X[id][a] < X[id][b] else (X[id][b], X[id][a])
-                     for idx, a in enumerate(block_records) for b in block_records[idx + 1:] if X[id][b] != X[id][a]]
-        pairs_extend(all_pairs)
+    # for block_records in tqdm(blocks_list):
+    #     all_pairs = [(X[id][a], X[id][b]) if X[id][a] < X[id][b] else (X[id][b], X[id][a])
+    #                  for idx, a in enumerate(block_records) for b in block_records[idx + 1:] if X[id][b] != X[id][a]]
+    #     pairs_extend(all_pairs)
 
-    # FIXME weights matching to add back
-    tokens = np.empty(1)
+    # improve block collection as an index, create index of weights for record pairs
+    weights_pairs = []
+    num_pairs, sum_weights = 0, 0
+    weights_extend = weights_pairs.extend
+    for block_records in tqdm(blocks_list):
+        def intersection(lst1, lst2) -> []:
+            return list(set(lst1) & set(lst2))
+        all_pairs = [[len(intersection(X[attr][a], X[attr][b])), X[id][a], X[id][b]] if X[id][a] < X[id][b]
+                     else [len(intersection(X[attr][a], X[attr][b])), X[id][b], X[id][a]]
+                     for idx, a in enumerate(block_records) for b in block_records[idx + 1:] if X[id][b] != X[id][a]]
+        weights_extend(all_pairs)
+
+    if weights_pairs:
+        weights_pairs = np.unique(np.vstack(weights_pairs), axis=0)
+    else:
+        return
+
+    weight_avg = np.mean(weights_pairs[:, 0])
+    pairs = (weights_pairs[weights_pairs[:, 0] >= weight_avg])[:, 1:3]
 
     write_to_csv(pairs, is_X1)
 
@@ -177,6 +195,7 @@ def naive_blocking(X, num_blocks):
 def group_and_blocking(X, group_by_cols):
     return X.groupby(group_by_cols)
 
+
 if os.path.exists("output.csv"):
     os.remove("output.csv")
 start = time.time()
@@ -187,20 +206,21 @@ X2 = pd.read_csv("X2.csv")
 
 # X1 = duplicate_with_new_id(X1, 10)
 # X2 = duplicate_with_new_id(X2, 10)
-print("X1 size " + str(len(X1)))
-print("X2 size " + str(len(X2)))
+# print("X1 size " + str(len(X1)))
+# print("X2 size " + str(len(X2)))
 
-X1_blocks = naive_blocking(X1, 50)
-X2_blocks = naive_blocking(X2, 80)
+X1_blocks = naive_blocking(X1, 40)
+X2_blocks = naive_blocking(X2, 50)
 # X2_blocks = group_and_blocking(X2, ["brand"])
 
 # perform blocking
 num_cores = multiprocessing.cpu_count()
 
-_ = Parallel(n_jobs=10, require='sharedmem')(delayed(block_with_attr)(i.reset_index(), id="id", attr="title", is_X1=True) for i in X1_blocks)
+# FIXME hardcorded num jobs
+_ = Parallel(n_jobs=16, require='sharedmem')(delayed(block_with_attr)(i.reset_index(), id="id", attr="title", is_X1=True) for i in X1_blocks)
 # X2_block_pairs = Parallel(n_jobs=num_cores)(delayed(block_with_attr)(i.reset_index(), id="id", attr="name") for _, i in X2_blocks)
 fill_output_file_with_0(True)
-_ = Parallel(n_jobs=10, require='sharedmem')(delayed(block_with_attr)(i.reset_index(), id="id", attr="name", is_X1=False) for i in X2_blocks)
+_ = Parallel(n_jobs=16, require='sharedmem')(delayed(block_with_attr)(i.reset_index(), id="id", attr="name", is_X1=False) for i in X2_blocks)
 fill_output_file_with_0(False)
 
 # X1_block_pairs = [pairs for pairs in X1_block_pairs if pairs]
@@ -212,5 +232,5 @@ fill_output_file_with_0(False)
 # # save results
 # save_output(X1_candidate_pairs, X2_candidate_pairs)
 
-end = time.time()
-print(f"Runtime of the program is {end - start}")
+# end = time.time()
+# print(f"Runtime of the program is {end - start}")
