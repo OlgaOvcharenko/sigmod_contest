@@ -8,15 +8,18 @@ import sys
 import pdb
 
 
-X1_df = pd.read_csv("X1_large.csv")
-X2_df = pd.read_csv("X2_large.csv")
-#  X1_df = pd.read_csv("X1.csv")
-#  X2_df = pd.read_csv("X2.csv")
-l = logging.Logger("")
+#  X1_df = pd.read_csv("X1_large.csv")
+#  X2_df = pd.read_csv("X2_large.csv")
+X1_df = pd.read_csv("X1.csv")
+X2_df = pd.read_csv("X2.csv")
+#  l = logging.Logger("")
+#  h = logging.StreamHandler()
+#  f = logging.Formatter(fmt="[{filename}:{lineno}] {msg}", style="{")
+#  h.setFormatter(f)
+#  l.addHandler(h)
+
 
 # %%
-
-
 def one_hot(shingles: set, vocab: dict) -> np.ndarray:
     vec = np.zeros(len(vocab))
     for shingle in shingles:
@@ -56,43 +59,41 @@ def get_fingerprint(minhash, ohe):
 
 # %%
 class LSH:
-    buckets = []
-    fingerprint_id = 0
 
     def __init__(self, b):
         self.bucket_count = b
-        [self.buckets.append({}) for i in range(b)]
+        self.buckets = []
+        [self.buckets.append({}) for _ in range(b)]
 
     def gen_bands(self, fingerprint):
-        l = len(fingerprint)
-        assert l % self.bucket_count == 0
-        r = int(l / self.bucket_count)
+        fingerprint_size = len(fingerprint)
+        assert fingerprint_size % self.bucket_count == 0
+        band_size = int(fingerprint_size / self.bucket_count)
 
         # break fingerprint into bands
         bands = []
-        for i in range(0, l, r):
-            bands.append(fingerprint[i:i+r])
+        for i in range(0, fingerprint_size, band_size):
+            bands.append(fingerprint[i:i+band_size])
         return np.stack(bands)
 
-    def hash(self, fingerprint):
+    def hash(self, fingerprint, id):
         bands = self.gen_bands(fingerprint).astype(str)
         for i, band in enumerate(bands):
             band = ','.join(band)
             if band not in self.buckets[i].keys():
                 self.buckets[i][band] = []
-            self.buckets[i][band].append(self.fingerprint_id)
-        self.fingerprint_id += 1
+            self.buckets[i][band].append(id)
 
-    def get_candidate_pairs(self, df):
-        global current_df
+    def get_candidate_pairs(self):
         candidates = []
         for bucket_band in self.buckets:
             keys = bucket_band.keys()
             for bucket in keys:
                 hashed_values = bucket_band[bucket]
                 if len(hashed_values) > 1:
-                    candidates.extend(combinations(
-                        [df['id'][i] for i in hashed_values], 2))
+                    #  pdb.set_trace()
+                    candidates.extend(combinations(hashed_values, 2))
+
         return set(candidates)
 
 
@@ -124,64 +125,48 @@ def save_output(X1_candidate_pairs,
     output_df.to_csv("output.csv", index=False)
 
 
-def blocking_step(X, df):
-    # %%
-    k = 10  # ~5 for small docs (emails), 9 - 10 for large docs(papers)
-    shingles = []
-    for row in X:
-        shingles.append(k_shingles(row, k))
-    l.info(f'shingles: {sys.getsizeof(shingles) / (1024 * 1024)}.')
+def blocking_step(X):
+    # TODO: split into #hyperthreads jobs
 
     # %%
-    all_shingles = {item for set_ in shingles for item in set_}
-    l.info(f'all_shingles: {sys.getsizeof(all_shingles) / (1024 * 1024)}.')
+    k = 3  # ~5 for small docs (emails), 9 - 10 for large docs(papers)
+    shingles = []
+    for row in X:
+        id, _, data = row.partition(' ')
+        shingles.append((id, k_shingles(data, k)))
+
+    # %%
+    all_shingles = {item for set_ in shingles for item in set_[1]}
 
     vocab = {}
     for i, shingle in enumerate(list(all_shingles)):
         vocab[shingle] = i
-    l.info(f'vocab: {sys.getsizeof(vocab) / (1024 * 1024)}.')
+
+    del all_shingles
+
+    # %%
+    # LSH
+    buckets = 15
+    lsh = LSH(buckets)
 
     # %%
     #one_hot = one_hot_encoding(vocab)
-    shingles_1hot = []
-    for shingle_set in shingles:
-        shingles_1hot.append(one_hot(shingle_set, vocab))
-        pdb.set_trace()
-    shingles_1hot = np.stack(shingles_1hot)
-    l.info(f'shingles_1hot: {sys.getsizeof(shingles_1hot) / (1024 * 1024)}.')
-
-    # %%
-    # fingerprints
-    hash_function_count = 100
+    hash_function_count = 150
     arr = gen_minhash(vocab, hash_function_count)
-    l.info(f'arr: {sys.getsizeof(arr) / (1024 * 1024)}.')
-    del vocab
+    for id, shingle in shingles:
+        ohe = one_hot(shingle, vocab)
 
-    fingerprints = []
-    for ohe in shingles_1hot:
-        fingerprints.append(get_fingerprint(arr, ohe))
-    fingerprints = np.stack(fingerprints)
-    l.info(f'fingerprints: {sys.getsizeof(fingerprints) / (1024 * 1024)}.')
-
-    del shingles_1hot
-
-    #  print(fingerprints.shape)
-    # %%
-    # LSH
-    buckets = 20
-    lsh = LSH(buckets)
-
-    for fingerprint in fingerprints:
-        lsh.hash(fingerprint)
+        fingerprint = get_fingerprint(arr, ohe)
+        lsh.hash(fingerprint, id)
 
     # %%
     # candidate pairs
-    return list(lsh.get_candidate_pairs(df))
+    return list(lsh.get_candidate_pairs())
 
 
 def duplicate_with_new_id(X, times_more: int):
     X_new = X
-    for i in range(0, times_more):
+    for _ in range(0, times_more):
         X_new = pd.concat([X_new, X])
 
     return X_new.reset_index()
@@ -189,21 +174,19 @@ def duplicate_with_new_id(X, times_more: int):
 
 if __name__ == '__main__':
 
-    h = logging.StreamHandler()
-    f = logging.Formatter(fmt="[{filename}:{lineno}] {msg}", style="{")
-    h.setFormatter(f)
-    l.addHandler(h)
-
     # %%
-    start = time.time()
-    X1 = X1_df['title'].tolist()
-    X2 = X2_df['name'].tolist() # TODO: include other attributes!
-    print("X1 size " + str(len(X1_df)))
-    print("X2 size " + str(len(X2_df)))
-    X1_candidate_pairs = blocking_step(X1, X1_df)
-    #  X2_candidate_pairs = blocking_step(X2, X2_df)
+    #  start = time.time()
+    X1_df['id_title'] = X1_df['id'].astype(str) + ' ' + X1_df['title']
+    X1 = X1_df['id_title'].tolist()
+    X2_df['id_title'] = X2_df['id'].astype(str) + ' ' + X2_df['name']
+    X2 = X2_df['id_title'].tolist()  # TODO: include other attributes!
+    #  print("X1 size " + str(len(X1_df)))
+    #  print("X2 size " + str(len(X2_df)))
+    X1_candidate_pairs = blocking_step(X1)
+    #  X2_candidate_pairs = blocking_step(X2)
+    X2_candidate_pairs = []
     #
     #  # save results
-    #  save_output(X1_candidate_pairs, X2_candidate_pairs)
-    end = time.time()
-    print(f"Runtime of the program is {end - start}.")
+    save_output(X1_candidate_pairs, X2_candidate_pairs)
+    #  end = time.time()
+    #  print(f"Runtime of the program is {end - start}.")
