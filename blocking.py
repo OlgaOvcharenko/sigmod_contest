@@ -5,8 +5,10 @@ from lsh import *
 
 #  X1_df = pd.read_csv("X1_large.csv")
 #  X2_df = pd.read_csv("X2_large.csv")
+
+#  X1_df = pd.read_csv("x1toy.csv")
 X1_df = pd.read_csv("X1.csv")
-X2_df = pd.read_csv("X2.csv")
+#  X2_df = pd.read_csv("X2.csv")
 #  l = logging.Logger("")
 #  h = logging.StreamHandler()
 #  f = logging.Formatter(fmt="[{filename}:{lineno}] {msg}", style="{")
@@ -62,12 +64,12 @@ def blocking_step(X):
 
     # %%
     # LSH
-    buckets = 15
+    buckets = 10
     lsh = LSH(buckets)
 
     # %%
     #one_hot = one_hot_encoding(vocab)
-    hash_function_count = 150
+    hash_function_count = 20
     arr = gen_minhash(vocab, hash_function_count)
     for id, shingle in shingles:
         ohe = one_hot(shingle, vocab)
@@ -85,12 +87,15 @@ if __name__ == '__main__':
     # %%
     X1_df['id_title'] = X1_df['id'].astype(str) + ' ' + X1_df['title']
     X1 = X1_df['id_title'].tolist()
-    X2_df['id_title'] = X2_df['id'].astype(str) + ' ' + X2_df['name']
-    X2 = X2_df['id_title'].tolist()  # TODO: include other attributes!
+    #  X2_df['id_title'] = X2_df['id'].astype(str) + ' ' + X2_df['name']
+    #  X2 = X2_df['id_title'].tolist()  # TODO: include other attributes!
 
     X1_candidate_pairs = blocking_step(X1)
-    X2_candidate_pairs = blocking_step(X2)
-    pdb.set_trace()
+    print(f'X1_candidate_pairs: {len(X1_candidate_pairs)}')
+    #  print(f'{X1_candidate_pairs}')
+    #  X2_candidate_pairs = blocking_step(X2)
+    X2_candidate_pairs = []
+    #  pdb.set_trace()
 
     # save results
     save_output(X1_candidate_pairs, X2_candidate_pairs)

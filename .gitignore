@@ -1,5 +1,10 @@
 *.csv
 tags
+.idea/
+.reprozip-trace/
+.vscode/
+design.md
+test.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
