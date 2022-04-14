@@ -1,62 +1,61 @@
-import os
-import time
-from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
 import logging
+import os
 import re
+import time
 import timeit
+
+import hnswlib
 
 import numpy as np
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor
 
 from sklearn.feature_extraction.text import HashingVectorizer, TfidfVectorizer
+from sklearn.manifold import TSNE
+from matplotlib import pyplot as plt
 
-from tqdm import tqdm
-from scipy.spatial.distance import pdist, squareform
 
 SIMILARITY = "similarity"
 IDX = "lid"
 IDY = "rid"
+GLOVE_PTH = "glove.6B.300d.txt"
+GLOVE_EMBEDDINGS = {}
 
 logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
 logger = logging.getLogger()
 
 
-def train_lsh(tfidf, n_vectors, seed=None):
-    if seed is not None:
-        np.random.seed(seed)
-
-    dim = tfidf.shape[1]
-    random_vectors = generate_random_vectors(dim, n_vectors)
-
-    # partition data points into bins,
-    # and encode bin index bits into integers
-    bin_indices_bits = tfidf.dot(random_vectors) >= 0
-    powers_of_two = 1 << np.arange(n_vectors - 1, -1, step=-1)
-    bin_indices = bin_indices_bits.dot(powers_of_two)
-
-    # update `table` so that `table[i]` is the list of document ids with bin index equal to i
-    table = defaultdict(list)
-    for idx, bin_index in enumerate(bin_indices):
-        table[bin_index].append(idx)
-
-    # note that we're storing the bin_indices here
-    # so we can do some ad-hoc checking with it,
-    # this isn't actually required
-    model = {'table': table,
-             'random_vectors': random_vectors,
-             'bin_indices': bin_indices,
-             'bin_indices_bits': bin_indices_bits}
-    return model
+def plot_features(vector_representation, df, attr, tag="dell"):
+    tsne = TSNE(random_state=1, n_iter=15000, metric="cosine")
+    embs = tsne.fit_transform(vector_representation)
+    df["x"] = embs[:, 0]
+    df["y"] = embs[:, 1]
+    match = df[df[attr].str.contains(tag)]
+    fig, ax = plt.subplots(figsize=(10, 8))
+    # Scatter points, set alpha low to make points translucent
+    ax.scatter(df.x, df.y, alpha=0.1)
+    ax.scatter(match.x, match.y, alpha=0.2, color="green")
+    plt.title("Scatter plot using t-SNE")
+    plt.show()
 
 
-def recall(true, prediction):
-    return (len(set(true).intersection(set(prediction)))) / len(true)
+def extract_glove_embeddings():
+    logger.info(f"LOADING GLOVE EMBEDDING")
+    embeddings_index = dict()
+    with open(GLOVE_PTH, encoding="utf-8") as f:
+        for line in f:
+            values = line.split()
+            word = values[0]
+            embeddings_index[word] = np.asarray(values[1:], dtype="float32")
+    return embeddings_index
 
 
-def map_async(iterable, func, model, max_workers=os.cpu_count()):
+def map_async(iterable, func, **kwargs):
+    max_workers = os.cpu_count()
+
     # https://devdreamz.com/question/825056-how-do-i-use-threads-on-a-generator-while-keeping-the-order
     # Generator that applies func to the input using max_workers concurrent jobs
+
     def async_iterator():
         iterator = iter(iterable)
         pending_results = []
@@ -71,7 +70,9 @@ def map_async(iterable, func, model, max_workers=os.cpu_count()):
                 try:
                     ids, data = next(iterator)
                     logger.debug(f"Submitting Task")
-                    pending_results.append(thread_pool.submit(func, model, data, ids))
+                    pending_results.append(
+                        thread_pool.submit(func, data, ids, **kwargs)
+                    )
                 except StopIteration:
                     logger.debug(f"Submitted all task")
                     has_input = False
@@ -90,46 +91,34 @@ def map_async(iterable, func, model, max_workers=os.cpu_count()):
     return async_iterator()
 
 
-def generate_similarity_df(
-    similarity_matrix: np.ndarray, match_over: pd.Series
-) -> pd.DataFrame:
-    similarity_upper_tri_indices = np.nonzero(np.triu(similarity_matrix))
-    similarity_upper_tri = similarity_matrix[similarity_upper_tri_indices]
+def generate_sentence_embedding(data: str, ids):
+    """
+        :param embeddings:
+        :param data:
+        :param ids:
+        :return:
+        @MISC {239071,
+        TITLE = {Apply word embeddings to entire document, to get a feature vector},
+        AUTHOR = {D.W. (https://stats.stackexchange.com/users/2921/d-w)},
+        HOWPUBLISHED = {Cross Validated},
+        NOTE = {URL:https://stats.stackexchange.com/q/239071 (version: 2016-10-07)},
+        EPRINT = {https://stats.stackexchange.com/q/239071},
+        URL = {https://stats.stackexchange.com/q/239071}
+    }
+    """
+    running_embedding = list()
+    # present_embedding_words = list(set(data.split()).intersection(set(embeddings.keys())))
+    # for word in present_embedding_words:
+    #     running_embedding.append(embeddings[word])
 
-    _rows = similarity_upper_tri_indices[0]
-    _cols = similarity_upper_tri_indices[1]
-
-    df = pd.DataFrame(
-        {
-            IDX: match_over[_rows].values,
-            IDY: match_over[_cols].values,
-            SIMILARITY: similarity_upper_tri,
-        }
-    )
-
-    return df
-
-
-def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
-    return df[df[IDX] != df[IDY]]
-
-
-def get_matched_pair(
-    vector_representation: np.ndarray,
-    similarity_over: pd.Series,
-):
-    similarity_matrix = 1 - squareform(pdist(vector_representation, metric="cosine"))
-    matched_pair_id = generate_similarity_df(similarity_matrix, similarity_over)
-    matched_pair_id = remove_duplicates(df=matched_pair_id)
-    matched_pair_id.sort_values(by=[SIMILARITY], inplace=True, ascending=False)
-    matched_pair_id = matched_pair_id[matched_pair_id[SIMILARITY] > 0.1]
-    return matched_pair_id
-
-
-def pre_process(df: pd.DataFrame):
-    df = df.applymap(lambda s: s.lower() if type(s) == str else s)
-    df = df.applymap(lambda x: re.sub(r"\W+", " ", x) if type(x) == str else x)
-    return df
+    for word in data.split():
+        try:
+            running_embedding.append(GLOVE_EMBEDDINGS[word])
+        except KeyError:
+            logger.debug(f"NO EMBEDDING FOUND FOR {word}")
+    # u_min = np.min(np.array(running_embedding), axis=0)
+    # u_max = np.max(np.array(running_embedding), axis=0)
+    return ids, np.mean(running_embedding, axis=0)
 
 
 def batch_gen(data: pd.DataFrame, attr: str):
@@ -137,8 +126,30 @@ def batch_gen(data: pd.DataFrame, attr: str):
         yield df_chunk["id"], df_chunk[attr]
 
 
+def recall(true, prediction):
+    return (len(set(true).intersection(set(prediction)))) / len(true)
+
+
+def cosine_distance(u, v):
+    u = u.reshape(1, -1)
+    return 1 - (u @ v.T / (np.linalg.norm(u, axis=-1) * np.linalg.norm(v, axis=-1)))
+
+
+def pre_process(df: pd.DataFrame, attr):
+
+    df = df.applymap(lambda s: s.lower() if type(s) == str else s)
+    df = df.applymap(lambda x: re.sub(r"\W+", " ", x) if type(x) == str else x)
+    # df = df.applymap(lambda x: " ".join(re.findall(r"\w+\s\w+\d+", x) + re.findall(r"(?i)\b[a-z]+\b", x)) if type(x) == str else x)
+
+    return df
+
+
 def tfidf_hashed(x, n_features):
     return HashingVectorizer(n_features=n_features).transform(x)
+
+
+def tfidf(x):
+    return TfidfVectorizer(stop_words="english").fit_transform(x)
 
 
 def generate_random_vectors(dim, n_vectors):
@@ -150,15 +161,72 @@ def generate_random_vectors(dim, n_vectors):
     return np.random.randn(dim, n_vectors)
 
 
-def get_similarity_items(x, item_id, topn=5):
-    """
-    Get the top similar items for a given item id.
-    The similarity measure here is based on cosine distance.
-    """
-    query = x[item_id]
-    scores = x.dot(query.reshape(1, -1).T).ravel()
-    best = np.argpartition(scores, -topn)[-topn:]
-    return sorted(zip(best, scores[best]), key=lambda x: -x[1])
+def get_tfidf_embeddings(X, attr, n_features) -> np.ndarray:
+    logger.info(f"TFIDF IN PROCESS")
+    return tfidf_hashed(X[attr].values.tolist(), n_features=n_features).toarray()
+
+
+def get_glove_embeddings(X, attr):
+    embeddings = list()
+    # for ids, data in batch_gen(X, attr):
+    #     _, result = generate_sentence_embedding(data, ids)
+    #     embeddings.append(result)
+
+    for ids, result in map_async(batch_gen(X, attr), generate_sentence_embedding):
+        embeddings.append(result)
+
+    return np.array(embeddings)
+
+
+def ann_search(
+    embeddings, data_ids, neighbours=4, ef_construction=200, m=20, set_ef=50
+):
+    logger.info(f"ANN SEARCH IN PROCESS")
+    size, dim = embeddings.shape
+    p = hnswlib.Index(space="cosine", dim=dim)
+    p.init_index(max_elements=size, ef_construction=ef_construction, M=m)
+    p.add_items(embeddings, data_ids)
+    p.set_ef(set_ef)
+    labels, distances = p.knn_query(embeddings, k=neighbours)
+    return labels, distances
+
+
+def generate_candidates_pairs(candidates: list, similarity: list):
+    logger.info(f"CANDIDATE GENERATION IN PROCESS")
+    candidate_pairs = list()
+    metric = list()
+    for ix, can in enumerate(candidates):
+        main_can = can[0]
+        for yx in range(1, len(can)):
+            similarity_score = similarity[ix][yx]
+            if similarity_score < 0.20:
+                continue
+
+            can2 = can[yx]
+            if main_can < can2:
+                candidate_pairs.append((main_can, can2))
+            else:
+                candidate_pairs.append((can2, main_can))
+            metric.append(similarity[ix][yx])
+        # candidate_pairs.extend(itertools.combinations(can, 2))
+
+    _, candidates_pairs = zip(
+        *sorted(zip(metric, candidate_pairs), key=lambda x: x[0], reverse=True)
+    )
+    return set(candidate_pairs)
+
+
+def blocking(X, attr):
+    embeddings = get_tfidf_embeddings(X, attr, n_features=600)
+    # embeddings = get_glove_embeddings(X, attr)
+    # embeddings = tfidf(X[attr])
+    # plot_features(embeddings, X, attr)
+    labels, distances = ann_search(embeddings, X["id"].to_list(), neighbours=10)
+    candidate_pairs = generate_candidates_pairs(
+        labels.tolist(), (1 - distances).tolist()
+    )
+    logging.info(f"TOTAL CANDIDATES: {len(candidate_pairs)}")
+    return list(candidate_pairs)
 
 
 def block_with_attr(X, attr):  # replace with your logic.
@@ -168,57 +236,16 @@ def block_with_attr(X, attr):  # replace with your logic.
     :param attr: attribute used for blocking
     :return: candidate set of tuple pairs
     """
+    # X = pd.concat([X] * 500, ignore_index=True)
+
     logger.info(f"EXECUTION STARTED")
-
-    X = pre_process(X)
-    # X = X.append(X * 1000, ignore_index=True)
-    # build index from patterns to tuples
-    # tfidf = TfidfVectorizer(
-    #     analyzer='word',
-    #     ngram_range=(1, 3),
-    #     min_df=0,
-    #     stop_words='english')
-    # X_tfidf = tfidf.fit_transform(X[attr].values.tolist())
-
-    Q = generate_random_vectors(864908, 20)
+    X = pre_process(X, attr)
 
     start = timeit.default_timer()
-    embeddings = tfidf_hashed(X[attr].values.tolist(), n_features=20).toarray()
-    embeddings_ids = X["id"].values.tolist()
-    matched_pair_id = remove_duplicates(
-        get_matched_pair(embeddings, similarity_over=pd.Series(embeddings_ids))
-    )
-
-    model = train_lsh(embeddings, 100, seed=143)
-    similar_items = get_similarity_items(embeddings, 0)
-
-    similar_item_ids = [similar_item for similar_item, _ in similar_items]
-    bits1 = model['bin_indices_bits'][similar_item_ids[0]]
-    bits2 = model['bin_indices_bits'][similar_item_ids[1]]
-
-    # UNCOMMENT TO DEBUG
-    # matched_pair_str = get_matched_pair(
-    #     embeddings,
-    #     similarity_over=X[attr],
-    # )
-    # matched_pair_str.to_csv("debug.csv")
-
-    candidate_pairs = list(zip(matched_pair_id[IDX], matched_pair_id[IDY]))
-    candidate_pairs_real_ids = list()
-
-    for it in tqdm(candidate_pairs):
-        real_id1, real_id2 = it
-
-        # NOTE: This is to make sure in the final output.csv, for a pair id1 and id2 (assume id1<id2),
-        # we only include (id1,id2) but not (id2, id1)
-        if real_id1 < real_id2:
-            candidate_pairs_real_ids.append((real_id1, real_id2))
-        else:
-            candidate_pairs_real_ids.append((real_id2, real_id1))
-
+    candidates = blocking(X, attr)
     stop = timeit.default_timer()
     logger.info(f"EXECUTION TIME {stop - start}")
-    return candidate_pairs_real_ids
+    return list(candidates)
 
 
 def save_output(
@@ -262,12 +289,12 @@ X2 = pd.read_csv("X2.csv")
 X1_candidate_pairs = block_with_attr(X1, attr="title")
 X2_candidate_pairs = block_with_attr(X2, attr="name")
 
-print(
-    f"RECALL FOR X1 - {recall(pd.read_csv('Y1.csv').to_records(index=False).tolist(), X1_candidate_pairs)}"
-)
-print(
-    f"RECALL FOR X2 - {recall(pd.read_csv('Y2.csv').to_records(index=False).tolist(), X2_candidate_pairs)}"
-)
+# print(
+#     f"RECALL FOR X1 - {recall(pd.read_csv('Y1.csv').to_records(index=False).tolist(), X1_candidate_pairs)}"
+# )
+# print(
+#     f"RECALL FOR X2 - {recall(pd.read_csv('Y2.csv').to_records(index=False).tolist(), X2_candidate_pairs)}"
+# )
 
 # save results
 save_output(X1_candidate_pairs, X2_candidate_pairs)
