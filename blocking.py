@@ -1,94 +1,26 @@
 import logging
-import os
-import re
-import time
 import timeit
 
 import hnswlib
 
 import numpy as np
 import pandas as pd
-from concurrent.futures import ThreadPoolExecutor
 
 from sklearn.feature_extraction.text import HashingVectorizer, TfidfVectorizer
-from sklearn.manifold import TSNE
-from matplotlib import pyplot as plt
 
-
-SIMILARITY = "similarity"
-IDX = "lid"
-IDY = "rid"
-GLOVE_PTH = "glove.6B.300d.txt"
-GLOVE_EMBEDDINGS = {}
+from utils import (
+    map_async,
+    extract_glove_embeddings,
+    pre_process,
+    generate_random_vectors,
+    batch_gen,
+    recall,
+)
 
 logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
 logger = logging.getLogger()
 
-
-def plot_features(vector_representation, df, attr, tag="dell"):
-    tsne = TSNE(random_state=1, n_iter=15000, metric="cosine")
-    embs = tsne.fit_transform(vector_representation)
-    df["x"] = embs[:, 0]
-    df["y"] = embs[:, 1]
-    match = df[df[attr].str.contains(tag)]
-    fig, ax = plt.subplots(figsize=(10, 8))
-    # Scatter points, set alpha low to make points translucent
-    ax.scatter(df.x, df.y, alpha=0.1)
-    ax.scatter(match.x, match.y, alpha=0.2, color="green")
-    plt.title("Scatter plot using t-SNE")
-    plt.show()
-
-
-def extract_glove_embeddings():
-    logger.info(f"LOADING GLOVE EMBEDDING")
-    embeddings_index = dict()
-    with open(GLOVE_PTH, encoding="utf-8") as f:
-        for line in f:
-            values = line.split()
-            word = values[0]
-            embeddings_index[word] = np.asarray(values[1:], dtype="float32")
-    return embeddings_index
-
-
-def map_async(iterable, func, **kwargs):
-    max_workers = os.cpu_count()
-
-    # https://devdreamz.com/question/825056-how-do-i-use-threads-on-a-generator-while-keeping-the-order
-    # Generator that applies func to the input using max_workers concurrent jobs
-
-    def async_iterator():
-        iterator = iter(iterable)
-        pending_results = []
-        has_input = True
-        thread_pool = ThreadPoolExecutor(max_workers)
-        while True:
-            # Submit jobs for remaining input until max_worker jobs are running
-            while (
-                has_input
-                and len([e for e in pending_results if e.running()]) < max_workers
-            ):
-                try:
-                    ids, data = next(iterator)
-                    logger.debug(f"Submitting Task")
-                    pending_results.append(
-                        thread_pool.submit(func, data, ids, **kwargs)
-                    )
-                except StopIteration:
-                    logger.debug(f"Submitted all task")
-                    has_input = False
-
-            # If there are no pending results, the generator is done
-            if not pending_results:
-                return
-
-            # If the oldest job is done, return its value
-            if pending_results[0].done():
-                yield pending_results.pop(0).result()
-            # Otherwise, yield the CPU, then continue starting new jobs
-            else:
-                time.sleep(0.01)
-
-    return async_iterator()
+GLOVE_EMBEDDINGS = {}  # extract_glove_embeddings()
 
 
 def generate_sentence_embedding(data: str, ids):
@@ -118,30 +50,11 @@ def generate_sentence_embedding(data: str, ids):
             logger.debug(f"NO EMBEDDING FOUND FOR {word}")
     # u_min = np.min(np.array(running_embedding), axis=0)
     # u_max = np.max(np.array(running_embedding), axis=0)
-    return ids, np.mean(running_embedding, axis=0)
-
-
-def batch_gen(data: pd.DataFrame, attr: str):
-    for i, df_chunk in data.iterrows():
-        yield df_chunk["id"], df_chunk[attr]
-
-
-def recall(true, prediction):
-    return (len(set(true).intersection(set(prediction)))) / len(true)
-
-
-def cosine_distance(u, v):
-    u = u.reshape(1, -1)
-    return 1 - (u @ v.T / (np.linalg.norm(u, axis=-1) * np.linalg.norm(v, axis=-1)))
-
-
-def pre_process(df: pd.DataFrame, attr):
-
-    df = df.applymap(lambda s: s.lower() if type(s) == str else s)
-    df = df.applymap(lambda x: re.sub(r"\W+", " ", x) if type(x) == str else x)
-    # df = df.applymap(lambda x: " ".join(re.findall(r"\w+\s\w+\d+", x) + re.findall(r"(?i)\b[a-z]+\b", x)) if type(x) == str else x)
-
-    return df
+    if len(running_embedding) != 0:
+        emd = np.mean(running_embedding, axis=0)
+    else:
+        emd = np.zeros(300)
+    return ids, emd
 
 
 def tfidf_hashed(x, n_features):
@@ -152,25 +65,18 @@ def tfidf(x):
     return TfidfVectorizer(stop_words="english").fit_transform(x)
 
 
-def generate_random_vectors(dim, n_vectors):
-    """
-    generate random projection vectors
-    the dims comes first in the matrix's shape,
-    so we can use it for matrix multiplication.
-    """
-    return np.random.randn(dim, n_vectors)
+def get_tfidf_features(X, attr):
+    logger.info(f"TFIDF IN PROCESS")
+    return tfidf(X[attr].values.tolist()).toarray()
 
 
-def get_tfidf_embeddings(X, attr, n_features) -> np.ndarray:
+def get_tfidf_hashed_features(X, attr, n_features) -> np.ndarray:
     logger.info(f"TFIDF IN PROCESS")
     return tfidf_hashed(X[attr].values.tolist(), n_features=n_features).toarray()
 
 
 def get_glove_embeddings(X, attr):
     embeddings = list()
-    # for ids, data in batch_gen(X, attr):
-    #     _, result = generate_sentence_embedding(data, ids)
-    #     embeddings.append(result)
 
     for ids, result in map_async(batch_gen(X, attr), generate_sentence_embedding):
         embeddings.append(result)
@@ -216,19 +122,6 @@ def generate_candidates_pairs(candidates: list, similarity: list):
     return set(candidate_pairs)
 
 
-def blocking(X, attr):
-    embeddings = get_tfidf_embeddings(X, attr, n_features=600)
-    # embeddings = get_glove_embeddings(X, attr)
-    # embeddings = tfidf(X[attr])
-    # plot_features(embeddings, X, attr)
-    labels, distances = ann_search(embeddings, X["id"].to_list(), neighbours=10)
-    candidate_pairs = generate_candidates_pairs(
-        labels.tolist(), (1 - distances).tolist()
-    )
-    logging.info(f"TOTAL CANDIDATES: {len(candidate_pairs)}")
-    return list(candidate_pairs)
-
-
 def block_with_attr(X, attr):  # replace with your logic.
     """
     This function performs blocking using attr
@@ -242,10 +135,18 @@ def block_with_attr(X, attr):  # replace with your logic.
     X = pre_process(X, attr)
 
     start = timeit.default_timer()
-    candidates = blocking(X, attr)
+    # embeddings = get_tfidf_embeddings(X, attr, n_features=50)
+    # embeddings = get_glove_embeddings(X, attr)
+    embeddings = get_tfidf_features(X, attr)
+    # plot_features(embeddings, X, attr)
+    labels, distances = ann_search(embeddings, X["id"].to_list(), neighbours=15)
+    candidate_pairs = generate_candidates_pairs(
+        labels.tolist(), (1 - distances).tolist()
+    )
+    logging.info(f"TOTAL CANDIDATES: {len(candidate_pairs)}")
     stop = timeit.default_timer()
     logger.info(f"EXECUTION TIME {stop - start}")
-    return list(candidates)
+    return list(candidate_pairs)
 
 
 def save_output(
