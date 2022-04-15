@@ -14,7 +14,7 @@ from utils import (
     pre_process,
     generate_random_vectors,
     batch_gen,
-    recall,
+    recall, plot_features,
 )
 
 logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
@@ -135,9 +135,9 @@ def block_with_attr(X, attr):  # replace with your logic.
     X = pre_process(X, attr)
 
     start = timeit.default_timer()
-    # embeddings = get_tfidf_embeddings(X, attr, n_features=50)
+    embeddings = get_tfidf_hashed_features(X, attr, n_features=100)
     # embeddings = get_glove_embeddings(X, attr)
-    embeddings = get_tfidf_features(X, attr)
+    # embeddings = get_tfidf_features(X, attr)
     # plot_features(embeddings, X, attr)
     labels, distances = ann_search(embeddings, X["id"].to_list(), neighbours=15)
     candidate_pairs = generate_candidates_pairs(
@@ -190,12 +190,12 @@ X2 = pd.read_csv("X2.csv")
 X1_candidate_pairs = block_with_attr(X1, attr="title")
 X2_candidate_pairs = block_with_attr(X2, attr="name")
 
-# print(
-#     f"RECALL FOR X1 - {recall(pd.read_csv('Y1.csv').to_records(index=False).tolist(), X1_candidate_pairs)}"
-# )
-# print(
-#     f"RECALL FOR X2 - {recall(pd.read_csv('Y2.csv').to_records(index=False).tolist(), X2_candidate_pairs)}"
-# )
+print(
+    f"RECALL FOR X1 - {recall(pd.read_csv('Y1.csv').to_records(index=False).tolist(), X1_candidate_pairs)}"
+)
+print(
+    f"RECALL FOR X2 - {recall(pd.read_csv('Y2.csv').to_records(index=False).tolist(), X2_candidate_pairs)}"
+)
 
 # save results
 save_output(X1_candidate_pairs, X2_candidate_pairs)

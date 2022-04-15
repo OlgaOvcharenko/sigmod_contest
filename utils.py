@@ -94,17 +94,17 @@ def extract_glove_embeddings():
 
 
 def regex_feature_process(data):
-    p = re.findall(r"\w+\s\w+\d+", data)
 
     def _digit(inp_str):
         return np.alltrue(
             np.array([indi_str.isdigit() for indi_str in inp_str.split()])
         )
 
+    p = re.findall(r"\w+\s\w+\d+", data)
     if len(p) == 0:
         feat = re.findall(r"(?i)\b[a-z]+\b", data)
-    elif np.alltrue(np.array([_digit(s) for s in p])):
-        feat = re.findall(r"(?i)\b[a-z]+\b", data)
+    # elif np.alltrue(np.array([_digit(s) for s in p])):
+    #     feat = re.findall(r"(?i)\b[a-z]+\b", data)
     else:
         feat = p
     return " ".join(feat)
