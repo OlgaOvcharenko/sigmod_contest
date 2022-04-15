@@ -1,15 +1,14 @@
 import pandas as pd
 import pdb
-from dataset import Dataset
+from dataset import Preprocessor
 from partitioning import Partitioner
 
 
+#  X1_df = pd.read_csv("x1toy.csv")
 #  X1_df = pd.read_csv("X1_large.csv")
 #  X2_df = pd.read_csv("X2_large.csv")
-
-#  X1_df = pd.read_csv("x1toy.csv")
-X1_df = pd.read_csv("X1.csv")
-X2_df = pd.read_csv("X2.csv")
+#  X1_df = pd.read_csv("X1.csv")
+#  X2_df = pd.read_csv("X2.csv")
 
 
 def save_output(X1_candidate_pairs,
@@ -33,19 +32,24 @@ def save_output(X1_candidate_pairs,
 
 
 def blocking_step(df_path):
-    ds = Dataset(df_path)
+    ds = Preprocessor.build(df_path)
     data = ds.preprocess()
 
-    pt = Partitioner(data)
+    pt = Partitioner.build(df_path, data)
     pt.blocking_step()
 
     return pt.get_candidate_pairs()
 
 
 if __name__ == '__main__':
+    #  X1_candidate_pairs = blocking_step("X1_large.csv")
+    #  X2_candidate_pairs = blocking_step("X2_large.csv")
     X1_candidate_pairs = blocking_step("X1.csv")
-    #  X2_candidate_pairs = blocking_step(X2_df)
-    X2_candidate_pairs = []
+    X2_candidate_pairs = blocking_step("X2.csv")
+    #  X1_candidate_pairs = []
+    #  X2_candidate_pairs = []
     print(f'X1_candidate_pairs: {len(X1_candidate_pairs)}')
+    print(f'X2_candidate_pairs: {len(X2_candidate_pairs)}')
+    #  pdb.set_trace()
 
-    #  save_output(X1_candidate_pairs, X2_candidate_pairs)
+    save_output(X1_candidate_pairs, X2_candidate_pairs)
