@@ -31,6 +31,12 @@ products = [
     "pavilion", "elitebook", "latitude"
 ]
 
+memory = [
+    "speicherkarte", "microsdxc", "micro", "sdxc", r'micro[ ]?sd[hx]?c?'
+]
+
+types = memory
+
 models_by_brand = {
     "lenovo": ["thinkpad"],
     "dell": ["latitude", "inspiron", "vostro", "xps"],
@@ -48,9 +54,6 @@ class Partitioner():
 
     def __init__(self, df) -> None:
         self.df = df
-
-    def blocking_step(self) -> None:
-        pass
 
     @staticmethod
     def build(path, data):
@@ -74,27 +77,31 @@ class X1_Partitioner(Partitioner):
         super().__init__(df)
 
     def partition_by_attribute(self, attributes, parents) -> list:
-        buckets = {p: [] for p in attributes}
+        buckets = {k: [] for k in attributes}
 
-        assigned_block = []  # remove id to reduce candidate_pairs in future blocking step
+        already_blocked = []  # remove id to reduce candidate_pairs in future blocking step
         for idx, row in self.df.iterrows():
             title = row['title']
             for k in buckets.keys():
                 if k in title and (len(parents) == 0 or parents[k] in title):
                     #  pdb.set_trace()
                     buckets[k].append(row.id)
-                    assigned_block.append(idx)
+                    already_blocked.append(idx)
                     break
-        self.df = self.df.drop(assigned_block)
+        self.df = self.df.drop(already_blocked)
 
         candidate_pairs = set()
         for _, candidates in buckets.items():
-            for ix1, id1 in enumerate(candidates):
-                for _, id2 in enumerate(candidates[ix1+1:]):
-                    pair = (id1, id2) if id1 < id2 else (id2, id1)
-                    candidate_pairs.add(pair)
+            if len(candidates) < 100: #skip patterns that are too common
+                for ix1, id1 in enumerate(candidates):
+                    for _, id2 in enumerate(candidates[ix1+1:]):
+                        pair = (id1, id2) if id1 < id2 else (id2, id1)
+                        candidate_pairs.add(pair)
 
         return list(candidate_pairs)
+
+    def partition_by_type(self) -> list:
+        return self.partition_by_attribute(types, [])
 
     def partition_by_product(self) -> list:
         return self.partition_by_attribute(products, [])
@@ -108,8 +115,8 @@ class X1_Partitioner(Partitioner):
     def _get_candidate_pairs(self) -> list:
         candidate_pairs = []
 
+        #  candidate_pairs.extend(self.partition_by_type())
         candidate_pairs.extend(self.partition_by_product())
-        pdb.set_trace()
         candidate_pairs.extend(self.partition_by_model())
         candidate_pairs.extend(self.partition_by_brand())
 

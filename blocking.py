@@ -1,6 +1,6 @@
 import pandas as pd
 import pdb
-from dataset import Preprocessor
+from preprocessing import Preprocessor
 from partitioning import Partitioner
 
 
@@ -36,9 +36,11 @@ def blocking_step(df_path):
     data = ds.preprocess()
 
     pt = Partitioner.build(df_path, data)
-    pt.blocking_step()
-
     return pt.get_candidate_pairs()
+
+
+def recall(true, prediction):
+    return (len(set(true).intersection(set(prediction)))) / len(true)
 
 
 if __name__ == '__main__':
@@ -51,5 +53,12 @@ if __name__ == '__main__':
     print(f'X1_candidate_pairs: {len(X1_candidate_pairs)}')
     print(f'X2_candidate_pairs: {len(X2_candidate_pairs)}')
     #  pdb.set_trace()
-
+    r1 = recall(pd.read_csv('Y1.csv').to_records(
+        index=False).tolist(), X1_candidate_pairs)
+    r2 = recall(pd.read_csv('Y2.csv').to_records(
+        index=False).tolist(), X2_candidate_pairs)
+    r = (r1 + r2) / 2
+    print(f"RECALL FOR X1 \t\t{r1:.3f}")
+    print(f"RECALL FOR X2 \t\t{r2:.3f}")
+    print(f"RECALL OVERALL  \t{r:.3f}")
     save_output(X1_candidate_pairs, X2_candidate_pairs)

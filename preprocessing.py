@@ -59,6 +59,5 @@ class X2_Preprocessor(Preprocessor):
         super().__init__(df)
 
     def _preprocess_X(self):
-        # TODO: if brand is empty -> figure out brand from name
         self.df = self.df.rename({'name':'title'}, axis=1)
         return self.df
