@@ -61,10 +61,10 @@ def blocking_step(df_path):
 
     del all_shingles
 
-    buckets = 25
+    buckets = 15
     lsh = LSH(buckets)
 
-    hash_function_count = 100
+    hash_function_count = 150
     arr = gen_minhash(vocab, hash_function_count)
     for id, shingle in shingles:
         ohe = one_hot(shingle, vocab)
@@ -102,4 +102,4 @@ if __name__ == '__main__':
     print(f"RECALL FOR X2 \t\t{r2:.3f}")
     print(f"RECALL OVERALL  \t{r:.3f}")
     # save results
-    #  save_output(X1_candidate_pairs, X2_candidate_pairs)
+    save_output(X1_candidate_pairs, X2_candidate_pairs)

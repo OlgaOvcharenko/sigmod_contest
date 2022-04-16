@@ -60,16 +60,20 @@ class LSH:
         e.g., possible candidate.
         :returns: Set of all possible candidates.
         '''
-        candidates = []
+        candidates = set()
         for bucket_band in self.buckets:
             keys = bucket_band.keys()
             for bucket in keys:
                 hashed_values = bucket_band[bucket]
-                if len(hashed_values) > 1 and len(hashed_values) < 100:
+                if len(hashed_values) > 1:# and len(hashed_values) < 100:
+                    for ix1, id1 in enumerate(hashed_values):
+                        for _, id2 in enumerate(hashed_values[ix1+1:]):
+                            pair = (id1, id2) if id1 < id2 else (id2, id1)
+                            candidates.add(pair)
                     #  pdb.set_trace()
-                    candidates.extend(combinations(hashed_values, 2))
+                    #  candidates.extend(combinations(hashed_values, 2))
 
-        return set(candidates)
+        return candidates
 
 
 # %%

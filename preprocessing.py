@@ -60,4 +60,7 @@ class X2_Preprocessor(Preprocessor):
 
     def _preprocess_X(self):
         self.df = self.df.rename({'name':'title'}, axis=1)
+        self.df['title'] = self.df['title'] + ' ' +  self.df['price'].astype(str) + ' ' +   self.df['brand'] + ' ' +   self.df['description'] + ' ' +   self.df['category']
+        self.df['title'] = self.df['title'].str.replace('nan', '')
+        #  pdb.set_trace()
         return self.df
