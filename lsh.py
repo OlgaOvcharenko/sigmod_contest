@@ -65,7 +65,7 @@ class LSH:
             keys = bucket_band.keys()
             for bucket in keys:
                 hashed_values = bucket_band[bucket]
-                if len(hashed_values) > 1:
+                if len(hashed_values) > 1 and len(hashed_values) < 100:
                     #  pdb.set_trace()
                     candidates.extend(combinations(hashed_values, 2))
 

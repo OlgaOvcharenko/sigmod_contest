@@ -76,6 +76,9 @@ def block_with_attr(X, attr):  # replace with your logic.
     return candidate_pairs_real_ids
 
 
+def recall(true, prediction):
+    return (len(set(true).intersection(set(prediction)))) / len(true)
+
 def save_output(X1_candidate_pairs,
                 X2_candidate_pairs):  # save the candset for both datasets to a SINGLE file output.csv
     expected_cand_size_X1 = 1000000
@@ -108,5 +111,16 @@ X2 = pd.read_csv("X2.csv")
 X1_candidate_pairs = block_with_attr(X1, attr="title")
 X2_candidate_pairs = block_with_attr(X2, attr="name")
 
+print(f'X1_candidate_pairs: {len(X1_candidate_pairs)}')
+print(f'X2_candidate_pairs: {len(X2_candidate_pairs)}')
+#  pdb.set_trace()
+r1 = recall(pd.read_csv('Y1.csv').to_records(
+    index=False).tolist(), X1_candidate_pairs)
+r2 = recall(pd.read_csv('Y2.csv').to_records(
+    index=False).tolist(), X2_candidate_pairs)
+r = (r1 + r2) / 2
+print(f"RECALL FOR X1 \t\t{r1:.3f}")
+print(f"RECALL FOR X2 \t\t{r2:.3f}")
+print(f"RECALL OVERALL  \t{r:.3f}")
 # save results
-save_output(X1_candidate_pairs, X2_candidate_pairs)
+#  save_output(X1_candidate_pairs, X2_candidate_pairs)

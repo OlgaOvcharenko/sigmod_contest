@@ -1,5 +1,7 @@
 import pandas as pd
 import pdb
+
+from preprocessing import Preprocessor
 from lsh import *
 
 
@@ -41,17 +43,16 @@ def save_output(X1_candidate_pairs,
     output_df.to_csv("output.csv", index=False)
 
 
-def blocking_step(X):
-    # TODO: split into #hyperthreads jobs
+def blocking_step(df_path):
+    ds = Preprocessor.build(df_path)
+    dataset = ds.preprocess()   # TODO: split into #hyperthreads jobs
 
-    # %%
     k = 3  # ~5 for small docs (emails), 9 - 10 for large docs(papers)
     shingles = []
-    for row in X:
-        id, _, data = row.partition(' ')
-        shingles.append((id, k_shingles(data, k)))
+    for _, row in dataset.iterrows():
+        data = row['title']
+        shingles.append((row['id'], k_shingles(data, k)))
 
-    # %%
     all_shingles = {item for set_ in shingles for item in set_[1]}
 
     vocab = {}
@@ -60,14 +61,10 @@ def blocking_step(X):
 
     del all_shingles
 
-    # %%
-    # LSH
-    buckets = 15
+    buckets = 25
     lsh = LSH(buckets)
 
-    # %%
-    #one_hot = one_hot_encoding(vocab)
-    hash_function_count = 150
+    hash_function_count = 100
     arr = gen_minhash(vocab, hash_function_count)
     for id, shingle in shingles:
         ohe = one_hot(shingle, vocab)
@@ -75,22 +72,34 @@ def blocking_step(X):
         fingerprint = get_fingerprint(arr, ohe)
         lsh.hash(fingerprint, id)
 
-    # %%
-    # candidate pairs
     return list(lsh.get_candidate_pairs())
+
+
+def recall(true, prediction):
+    return (len(set(true).intersection(set(prediction)))) / len(true)
 
 
 if __name__ == '__main__':
 
     # %%
-    X1_df['id_title'] = X1_df['id'].astype(str) + ' ' + X1_df['title']
-    X1 = X1_df['id_title'].tolist()
-    X2_df['id_title'] = X2_df['id'].astype(str) + ' ' + X2_df['name']
-    X2 = X2_df['id_title'].tolist()  # TODO: include other attributes!
+    #  X1_df['id_title'] = X1_df['id'].astype(str) + ' ' + X1_df['title']
+    #  X1 = X1_df['id_title'].tolist()
+    #  X2_df['id_title'] = X2_df['id'].astype(str) + ' ' + X2_df['name']
+    #  X2 = X2_df['id_title'].tolist()  # TODO: include other attributes!
 
-    X1_candidate_pairs = blocking_step(X1)
-    X2_candidate_pairs = blocking_step(X2)
-    pdb.set_trace()
+    X1_candidate_pairs = blocking_step("X1.csv")
+    X2_candidate_pairs = blocking_step("X2.csv")
 
+    print(f'X1_candidate_pairs: {len(X1_candidate_pairs)}')
+    print(f'X2_candidate_pairs: {len(X2_candidate_pairs)}')
+    #  pdb.set_trace()
+    r1 = recall(pd.read_csv('Y1.csv').to_records(
+        index=False).tolist(), X1_candidate_pairs)
+    r2 = recall(pd.read_csv('Y2.csv').to_records(
+        index=False).tolist(), X2_candidate_pairs)
+    r = (r1 + r2) / 2
+    print(f"RECALL FOR X1 \t\t{r1:.3f}")
+    print(f"RECALL FOR X2 \t\t{r2:.3f}")
+    print(f"RECALL OVERALL  \t{r:.3f}")
     # save results
-    save_output(X1_candidate_pairs, X2_candidate_pairs)
+    #  save_output(X1_candidate_pairs, X2_candidate_pairs)
