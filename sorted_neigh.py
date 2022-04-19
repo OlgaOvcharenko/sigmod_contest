@@ -92,7 +92,7 @@ def block_with_attr(X, id, attr, is_X1:bool):
     for i in tqdm(range(X.shape[0])):
         attr_i = str(X[attr][i])
         result_words = normalize_string(attr_i)
-        normalized_str, num_words = " ".join(result_words), len(result_words)
+        normalized_str, num_words_str = " ".join(result_words), len(result_words)
 
         # For Jaccard distance later
         result_words = sorted(result_words, key=len, reverse=True)
@@ -116,7 +116,7 @@ def block_with_attr(X, id, attr, is_X1:bool):
                 frequencies_list_append(1)
                 count_tokens += 1
 
-        num_words += num_words
+        num_words += num_words_str
 
     # calculate tf-idf values
     frequencies_list, token_row_indices = np.array(frequencies_list, dtype=int), np.array(token_row_indices, dtype=int)
