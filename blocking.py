@@ -1,5 +1,6 @@
 import pandas as pd
-import pdb
+#  import pdb
+#  import ipdb
 
 from preprocessing import Preprocessor
 from lsh import *
@@ -27,7 +28,7 @@ def save_output(X1_candidate_pairs,
         X2_candidate_pairs = X2_candidate_pairs[:expected_cand_size_X2]
 
     # make sure to include exactly 1000000 pairs for dataset X1 and 2000000 pairs for dataset X2
-    if len(X1_candidate_pairs) < expected_cand_size_X1:
+    if len(X1_candidate_pairs) < expected_cand_size_X1: # TODO: if less < 1mil, fill with random pairs?
         X1_candidate_pairs.extend(
             [(0, 0)] * (expected_cand_size_X1 - len(X1_candidate_pairs)))
     if len(X2_candidate_pairs) < expected_cand_size_X2:
@@ -41,7 +42,6 @@ def save_output(X1_candidate_pairs,
     # In evaluation, we expect output.csv to include exactly 3000000 tuple pairs.
     # we expect the first 1000000 pairs are for dataset X1, and the remaining pairs are for dataset X2
     output_df.to_csv("output.csv", index=False)
-
 
 def blocking_step(df_path):
     ds = Preprocessor.build(df_path)
@@ -74,6 +74,42 @@ def blocking_step(df_path):
 
     return list(lsh.get_candidate_pairs())
 
+def blocking_step2(df_path):
+    ds = Preprocessor.build(df_path)
+    dataset = ds.preprocess()   # TODO: split into #hyperthreads jobs
+
+    k = 2  # ~5 for small docs (emails), 9 - 10 for large docs(papers)
+
+    candidate_pairs = []
+    for _, group in dataset.groupby("lang"):
+        shingles = []
+        for _, row in group.iterrows():
+            data = row['title']
+            shingles.append((row['id'], k_shingles(data, k)))
+
+        all_shingles = {item for set_ in shingles for item in set_[1]}
+
+        vocab = {}
+        for i, shingle in enumerate(list(all_shingles)):
+            vocab[shingle] = i
+
+        del all_shingles
+
+        buckets = 15
+        lsh = LSH(buckets)
+        hash_function_count = 150
+        arr = gen_minhash(vocab, hash_function_count)
+        for id, shingle in shingles:
+            ohe = one_hot(shingle, vocab)
+
+            fingerprint = get_fingerprint(arr, ohe)
+            lsh.hash(fingerprint, id)
+        candidate_pairs.extend(lsh.get_candidate_pairs())
+        #  print(f'{lang}: \trows: {len(group)} \tcp: {len(lsh.get_candidate_pairs())}')
+        #  ipdb.set_trace()
+
+    return candidate_pairs
+
 
 def recall(true, prediction):
     return (len(set(true).intersection(set(prediction)))) / len(true)
@@ -81,14 +117,9 @@ def recall(true, prediction):
 
 if __name__ == '__main__':
 
-    # %%
-    #  X1_df['id_title'] = X1_df['id'].astype(str) + ' ' + X1_df['title']
-    #  X1 = X1_df['id_title'].tolist()
-    #  X2_df['id_title'] = X2_df['id'].astype(str) + ' ' + X2_df['name']
-    #  X2 = X2_df['id_title'].tolist()  # TODO: include other attributes!
-
     X1_candidate_pairs = blocking_step("X1.csv")
-    X2_candidate_pairs = blocking_step("X2.csv")
+    #  X1_candidate_pairs = []
+    X2_candidate_pairs = blocking_step2("X2.csv")
 
     print(f'X1_candidate_pairs: {len(X1_candidate_pairs)}')
     print(f'X2_candidate_pairs: {len(X2_candidate_pairs)}')

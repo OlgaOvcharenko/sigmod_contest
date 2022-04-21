@@ -2,7 +2,9 @@ import pandas as pd
 import pdb
 
 
-SPECIAL_CHAR = [",", ":", ";", "!", "?", "(", ")", "[", "]", "{", "}", "/", "|", '"', "*", "/", '-', '+', '\n']
+SPECIAL_CHAR = [",", ":", ";", "!", "?",
+                "(", ")", "[", "]", "{", "}", "/", "|", '"', "*", "/", '-', '+', '\n']
+
 
 class Preprocessor():
 
@@ -17,7 +19,6 @@ class Preprocessor():
         for c in cols:
             for sc in SPECIAL_CHAR:
                 self.df[c] = self.df[c].str.replace(sc, ' ')
-
 
     def preprocess(self) -> pd.DataFrame:
         self.df = self.df.fillna(value="")
@@ -55,12 +56,25 @@ class X1_Preprocessor(Preprocessor):
 
 
 class X2_Preprocessor(Preprocessor):
+    language_mapping = {"fr": ["carte", "clé", "montres", "cle", "disque", "mémoire"], "es": ["tarjeta", "memoria", ],
+                        "hu": ["kártya", "memóriakártya", "pendrive", "pen drive"], "pl": ["karta", "pami"],
+                        "it": ["scheda", "memorie", "chiavetta"],
+                        "de": ["karte", "speicherkarte", "werk", "für", "bei", "speich"], "nl": ["kaart", "flashstation"],
+                        "se": ["minneskort", "usb-minne"], "cz": ["ý"]}
+
     def __init__(self, df):
         super().__init__(df)
 
+    def extract_language(self):
+        for idx, row in self.df.iterrows():
+            def predicate(x): return x in row['title']
+            for k, v in self.language_mapping.items():
+                if any(map(predicate, self.language_mapping[k])):
+                    self.df.at[idx, "lang"] = k
+                    break
+
     def _preprocess_X(self):
-        self.df = self.df.rename({'name':'title'}, axis=1)
-        self.df['title'] = self.df['title'] + ' ' +  self.df['price'].astype(str) + ' ' +   self.df['brand'] + ' ' +   self.df['description'] + ' ' +   self.df['category']
-        self.df['title'] = self.df['title'].str.replace('nan', '')
-        #  pdb.set_trace()
+        self.df = self.df.rename({'name': 'title'}, axis=1)
+        self.df["lang"] = "en"
+        self.extract_language()
         return self.df
