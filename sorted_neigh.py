@@ -91,78 +91,10 @@ def block_with_attr(X, id, attr, is_X1:bool):
         pattern = normalize_string(attr_i)
         num_words += len(pattern)
 
-        tokens[i] = pattern
-        for token in pattern:
-            frequency = doc_frequencies.get(token)
-            if frequency is not None:
-                doc_frequencies[token] = [frequency[0] + 1]
-            else:
-                doc_frequencies[token] = [1]
+        X[attr][i] = " ".join(pattern)
 
-    # calculate tf-idf values
-    tf_idf_avg_list = np.zeros((X.shape[0],), dtype=object)
-    for i in tqdm(range(X.shape[0])):
-        sum, count = 0, 0
-        for token in tokens[i]:
-            frequency = doc_frequencies.get(token)
 
-            if len(frequency) == 1:
-                tf = frequency[0] / num_words
-                idf = np.log(X.shape[0] / (frequency[0] + 1))
-                tf_idf = tf * idf
 
-                frequency.append(tf_idf)
-                doc_frequencies[token] = frequency
-                sum += tf
-                if doc_frequencies.get(token)[0] > 1:
-                    sum += tf_idf
-
-            else:
-                sum += frequency[1]
-
-            count += 1
-
-        tf_idf_avg_list[i] = sum / count if count > 0 else 0
-
-    # block values by their high value tokens
-    blocks = dict()
-    for i in tqdm(range(X.shape[0])):
-        for token in tokens[i]:
-            if doc_frequencies[token][1] > tf_idf_avg_list[i]:
-                record_list = [i]
-                if token in blocks:
-                    record_list.extend(blocks.get(token))
-
-                blocks[token] = record_list
-    doc_frequencies.clear()
-
-    # improve block collection as an index, create index of weights for record pairs
-    weights_pairs = []
-    num_pairs, sum_weights = 0, 0
-    for block in tqdm(blocks.items()):
-        block_records = block[1]
-
-        def intersection(lst1, lst2) -> []:
-            return list(set(lst1) & set(lst2))
-
-        all_pairs = [[a, b] for idx, a in enumerate(block_records)
-                     for b in block_records[idx + 1:] if X[id][b] != X[id][a]]
-
-        for r1_id, r2_id in all_pairs:
-            r1, r2 = tokens[r1_id], tokens[r2_id]
-            if r1 != r2:
-                weight = len(intersection(X[attr][r1_id], X[attr][r2_id]))
-                weights_pairs.append([weight,  X[id][r1_id], X[id][r2_id]])
-                num_pairs += 1
-                sum_weights += weight
-    blocks.clear()
-    tokens = np.empty(1)
-
-    weight_avg = sum_weights / num_pairs if num_pairs > 0 else 0
-
-    # TODO Jaccard similarity or Levenstein distance
-    pairs = ([tuple(elem[1:3]) if elem[1] < elem[2] else (elem[2], elem[1])
-              for elem in tqdm(weights_pairs) if not elem[0] < weight_avg])
     global x1_matches, x2_matches
     if is_X1:
         x1_matches.extend(pairs)

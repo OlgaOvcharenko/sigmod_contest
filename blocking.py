@@ -30,7 +30,7 @@ def block_with_attr(X, id, attr, is_X1:bool):
     # tokenize records patterns and count frequency
     for i in tqdm(range(X.shape[0])):
         attr_i = str(X[attr][i])
-        pattern = re.findall("\w+\s\w+\d+", attr_i)  # look for patterns like "thinkpad x1"
+        pattern = re.findall("\w+\s\w+\d+", attr_i)  # look for patterns like "thinkpad x1" #FIXME
         if len(pattern) == 0:
             tokens[i] = []
             continue
@@ -200,6 +200,12 @@ def group_and_blocking(X, group_by_cols):
 
 if os.path.exists("output.csv"):
     os.remove("output.csv")
+
+with open("output.csv", "a") as header_fp:
+    file_header = ["left_instance_id", "right_instance_id"]
+    csv_out = csv.writer(header_fp)
+    csv_out.writerow(file_header)
+
 start = time.time()
 
 # read the datasets
@@ -211,8 +217,8 @@ X2 = pd.read_csv("X2.csv")
 # print("X1 size " + str(len(X1)))
 # print("X2 size " + str(len(X2)))
 
-X1_blocks = naive_blocking(X1, 40)
-X2_blocks = naive_blocking(X2, 50)
+X1_blocks = naive_blocking(X1, 50)
+X2_blocks = naive_blocking(X2, 70)
 # X2_blocks = group_and_blocking(X2, ["brand"])
 
 # perform blocking
@@ -220,10 +226,27 @@ num_cores = multiprocessing.cpu_count()
 
 # FIXME hardcoded num jobs
 _ = Parallel(n_jobs=16, require='sharedmem')(delayed(block_with_attr)(i.reset_index(), id="id", attr="title", is_X1=True) for i in X1_blocks)
-# X2_block_pairs = Parallel(n_jobs=num_cores)(delayed(block_with_attr)(i.reset_index(), id="id", attr="name") for _, i in X2_blocks)
 fill_output_file_with_0(True)
 _ = Parallel(n_jobs=16, require='sharedmem')(delayed(block_with_attr)(i.reset_index(), id="id", attr="name", is_X1=False) for i in X2_blocks)
 fill_output_file_with_0(False)
+
+# # check length of the file
+# with open("output.csv", "r") as fp:
+#     for (count, _) in enumerate(fp, 1):
+#        pass
+#
+#     if count < 3000000:
+#         with open("output.csv", "a") as fp1:
+#             X_extended = [(0, 0)] * (3000000 - count)
+#             csv_out = csv.writer(fp1)
+#             csv_out.writerows(X_extended)
+#
+#     if count > 3000000:
+#         csv_in = csv.reader(fp)
+#         data = list(csv_in)[:3000000]
+#         with open("output.csv", "w") as fp2:
+#             csv_out = csv.writer(fp2)
+#             csv_out.writerows(data)
 
 # X1_block_pairs = [pairs for pairs in X1_block_pairs if pairs]
 # X2_block_pairs = [pairs for pairs in X2_block_pairs if pairs]
