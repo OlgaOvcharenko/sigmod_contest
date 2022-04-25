@@ -1,8 +1,11 @@
+import numpy as np
 import pandas as pd
 import pdb
+from langdetect import detect
 
 
-SPECIAL_CHAR = [",", ":", ";", "!", "?", "(", ")", "[", "]", "{", "}", "/", "|", '"', "*", "/", '-', '+', '\n']
+
+SPECIAL_CHAR = ["(", ")", "[", "]", "{", "}", "/", "|", '"', "*", "/", '-', '+', "#", '\n']
 
 class Preprocessor():
 
@@ -10,13 +13,15 @@ class Preprocessor():
         self.df = pd.read_csv(df)
 
     def to_lower(self, cols):
-        for c in cols:
-            self.df[c] = self.df[c].str.lower()
+        # for c in cols:
+        #     self.df[c] = self.df[c].str.lower()
+        pass
 
     def cleanup(self, cols):
-        for c in cols:
-            for sc in SPECIAL_CHAR:
-                self.df[c] = self.df[c].str.replace(sc, ' ')
+        pass
+        # for c in cols:
+        #     for sc in SPECIAL_CHAR:
+        #         self.df[c] = self.df[c].str.replace(sc, ' ')
 
 
     def preprocess(self) -> pd.DataFrame:
@@ -60,7 +65,7 @@ class X2_Preprocessor(Preprocessor):
 
     def _preprocess_X(self):
         self.df = self.df.rename({'name':'title'}, axis=1)
-        self.df['title'] = self.df['title'] + ' ' +  self.df['price'].astype(str) + ' ' +   self.df['brand'] + ' ' +   self.df['description'] + ' ' +   self.df['category']
+        self.df['title'] = self.df['title'] + ' ' + self.df['price'].astype(str) + ' ' + self.df['brand'] + ' ' + self.df['description'] + ' ' + self.df['category']
         self.df['title'] = self.df['title'].str.replace('nan', '')
         #  pdb.set_trace()
         return self.df

@@ -90,6 +90,8 @@ def one_hot(shingles: set, vocab: dict) -> np.ndarray:
     for shingle in shingles:
         idx = vocab[shingle]
         vec[idx] = 1
+    if vec.min() == 0 and vec.max() == 0:
+        print(1)
     return vec
 
 
@@ -138,5 +140,7 @@ def get_fingerprint(minhash, ohe):
     '''
     nnz_indexes = np.nonzero(ohe)[0].tolist()
     shingles = minhash[:, nnz_indexes]
+    if list(shingles) is []:
+        print(shingles)
     fingerprint = np.min(shingles, axis=1)
     return fingerprint
