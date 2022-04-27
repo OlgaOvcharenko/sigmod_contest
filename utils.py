@@ -13,6 +13,67 @@ GLOVE_PTH = "glove.6B.300d.txt"
 
 logger = logging.getLogger()
 
+STOPWORDS = {
+    "on",
+    "in",
+    "at",
+    "from",
+    "as",
+    "an",
+    "the",
+    "a",
+    "with",
+    "and",
+    "or",
+    "of",
+    "but",
+    "and",
+    "amazon.com",
+    "ebay",
+    "techbuy",
+    "alienware",
+    "miniprice.ca",
+    "alibaba",
+    "google",
+    "wholesale",
+    "new",
+    "used",
+    "brand",
+    "computer",
+    "computers",
+    "laptops",
+    "laptop",
+    "product",
+    "products",
+    "tablet",
+    "tablets",
+    "pc",
+    "buy",
+    "sale",
+    "best",
+    "good",
+    "quality",
+    "accessories",
+    "kids",
+    "" ",",
+    "|",
+    "/",
+    "@",
+    "!",
+    "?",
+    "-",
+    "1st",
+    "2nd",
+    "3rd",
+    "ghz",
+    "inch",
+    "cm",
+    "mm",
+    "mhz",
+    "gb",
+    "kb",
+}
+
 
 def generate_random_vectors(dim, n_vectors):
     return np.random.normal(0, 0.5, (n_vectors, dim))
@@ -48,7 +109,7 @@ def map_async(iterable, func, **kwargs):
                     ids, data = next(iterator)
                     logger.debug(f"Submitting Task")
                     pending_results.append(
-                        thread_pool.submit(func, data, ids, **kwargs)
+                        thread_pool.submit(func, ids, data, **kwargs)
                     )
                 except StopIteration:
                     logger.debug(f"Submitted all task")
@@ -93,39 +154,39 @@ def extract_glove_embeddings():
     return embeddings_index
 
 
-def regex_feature_process(data):
+def remove_stop_words(x):
 
-    def _digit(inp_str):
-        return np.alltrue(
-            np.array([indi_str.isdigit() for indi_str in inp_str.split()])
-        )
+    result_words = [
+        word for word in re.split("\W+", x) if word not in STOPWORDS and len(word) != 1
+    ]
 
-    p = re.findall(r"\w+\s\w+\d+", data)
-    if len(p) == 0:
-        feat = re.findall(r"(?i)\b[a-z]+\b", data)
-    # elif np.alltrue(np.array([_digit(s) for s in p])):
-    #     feat = re.findall(r"(?i)\b[a-z]+\b", data)
-    else:
-        feat = p
-    return " ".join(feat)
+    return " ".join(result_words)
+
+
+def reg_normalization(x):
+    x = str(x).lower()
+    x = re.sub(r"\W+", " ", str(x))
+    x = re.sub(
+        r"^((?!-)[A-Za-z0-9-]" + "{1,63}(?<!-)\\.)" + "+[A-Za-z]{2,6}", "", str(x)
+    )
+    x = re.sub(r"(?:\d+)\s+(inch|cm|mm|m|hz|ghz|gb|mb|g)", "", x)
+    x = re.sub(r"[^\w\s]", "", x)
+    x = [
+        word for word in re.split("\W+", x) if word not in STOPWORDS and len(word) != 1
+    ]
+    return " ".join(x)
 
 
 def pre_process(df: pd.DataFrame, attr):
-
-    df = df.applymap(lambda s: s.lower() if type(s) == str else s)
-    df = df.applymap(lambda x: re.sub(r"\W+", " ", x) if type(x) == str else x)
-    df[attr] = df.apply(lambda row: regex_feature_process(row[attr]), axis=1)
-    # df = df.applymap(
-    #     lambda x: " ".join(
-    #         re.findall(r"\w+\s\w+\d+", x)
-    #     )
-    #     if type(x) == str
-    #     else x
-    # )
-
+    df[attr] = df.apply(lambda row: reg_normalization(row[attr]), axis=1)
     return df
 
 
-def batch_gen(data: pd.DataFrame, attr: str):
-    for i, df_chunk in data.iterrows():
-        yield df_chunk["id"], df_chunk[attr]
+def batch_gen(x, **kwargs):
+    for x_chunk_id, x_chunk in enumerate(x):
+        yield x_chunk_id, x_chunk
+
+
+def tf_batch_gen(df, batch_size, attr):
+    for ix, b_df in df.groupby(np.arange(len(df)) // batch_size):
+        yield ix, b_df[attr].to_list()
