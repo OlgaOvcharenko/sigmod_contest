@@ -1,9 +1,7 @@
-import itertools
 import logging
 from collections import defaultdict
 
 import numpy as np
-import pandas as pd
 
 logger = logging.getLogger()
 
@@ -199,19 +197,19 @@ class LSHRPQuery(ANN):
                         rid2 = nn_ids[id2]
                         pair = (rid1, rid2) if rid1 < rid2 else (rid2, rid1)
                         candidates.add(pair)
-            else:
-                approx_neighbour_bucket = list()
-                id1 = bucket[0]
-                dist = self.hamming(self._binary_hash[id1], self._binary_hash)
-                for i in range(1, hanging_id_threshold):
-                    closet_pair = nn["".join(dist[i][:-1].astype(str))]
-                    approx_neighbour_bucket.extend(closet_pair)
-
-                rid1 = nn_ids[id1]
-                for _, id2 in enumerate(approx_neighbour_bucket):
-                    rid2 = nn_ids[id2]
-                    pair = (rid1, rid2) if rid1 < rid2 else (rid2, rid1)
-                    candidates.add(pair)
+            # else:
+            #     approx_neighbour_bucket = list()
+            #     id1 = bucket[0]
+            #     dist = self.hamming(self._binary_hash[id1], self._binary_hash)
+            #     for i in range(1, hanging_id_threshold):
+            #         closet_pair = nn["".join(dist[i][:-1].astype(str))]
+            #         approx_neighbour_bucket.extend(closet_pair)
+            #
+            #     rid1 = nn_ids[id1]
+            #     for _, id2 in enumerate(approx_neighbour_bucket):
+            #         rid2 = nn_ids[id2]
+            #         pair = (rid1, rid2) if rid1 < rid2 else (rid2, rid1)
+            #         candidates.add(pair)
 
         return candidates, None
 
