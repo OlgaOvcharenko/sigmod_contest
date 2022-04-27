@@ -50,8 +50,8 @@ def normalize_string(str_to_normalize: str, is_X2: bool):
         result_words = set(word for word in re.split("\W+", no_punctuation_string) if word not in stopwords and len(word) > 1)
 
     res_str = " ".join(sorted(result_words, reverse=False))  # TODO try sort
-    short_id = "".join([word[0] for word in result_words])
-    return res_str, short_id
+    # short_id = "".join([word[0] for word in result_words])
+    return res_str
 
 
 class Preprocessor:
@@ -113,7 +113,7 @@ class X2_Preprocessor(Preprocessor):
 
     def _preprocess_X(self):
         self.df = self.df.rename({'name':'title'}, axis=1)
-        self.df['title'] = self.df['title'] + ' ' + self.df['price'].astype(str) + ' ' + self.df['brand'] + ' ' + self.df['description'] + ' ' + self.df['category']
+        self.df['title'] = self.df['title'] + ' ' + self.df['brand'] + ' ' + self.df['description'] + ' ' + self.df['category']  # self.df['price'].astype(str) +
         self.df['title'] = self.df['title'].str.replace('nan', '')
         self.df['short_id'] = " "
         #  pdb.set_trace()

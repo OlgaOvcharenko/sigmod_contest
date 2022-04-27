@@ -142,7 +142,7 @@ def blocking_step(df_path, is_X2:bool):
     i = 0
     for _, row in dataset.iterrows():
         original_str = row['title']
-        str, short_id = preprocessing.normalize_string(row['title'], is_X2)
+        str = preprocessing.normalize_string(row['title'], is_X2)
 
         if is_X2:
             [all_pairs_hashed[k].append(row['id']) for k in hash_by_number(original_str, is_X2)]
@@ -157,9 +157,9 @@ def blocking_step(df_path, is_X2:bool):
         i += 1
 
     all_pairs = []
-    # # TODO joblib
-    # # FIXME check ids
-    # # or no sort and get > 0.5
+    # TODO joblib
+    # FIXME check ids
+    # or no sort and get > 0.5
     # for brand, ids in buckets_brands.items():
     #     def intersection(name1, name2):
     #         s1 = set(name1.lower().split())
@@ -168,8 +168,7 @@ def blocking_step(df_path, is_X2:bool):
     #
     #     pairs = [(dataset['id'][a], dataset['id'][b]) if dataset['id'][a] < dataset['id'][b]
     #                  else (dataset['id'][b], dataset['id'][a])
-    #                  for idx, a in enumerate(ids) for b in ids[idx + 1:] if dataset['id'][b] != dataset['id'][a] and
-    #              intersection(dataset['short_id'][a], dataset['short_id'][b]) >= 0.4]
+    #                  for idx, a in enumerate(ids) for b in ids[idx + 1:] if dataset['id'][b] != dataset['id'][a]]
     #
     #     all_pairs.extend(pairs)
 
