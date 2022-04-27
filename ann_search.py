@@ -50,21 +50,6 @@ class ANN:
         return set(candidate_pairs)
 
 
-class FaissL2Flat(ANN):
-    def load_and_query(self, feature_emd, neighbours, **kwargs):
-        size, dim = feature_emd.shape
-        _emb = feature_emd.astype(np.float32)
-
-        import faiss
-
-        index = faiss.IndexFlatL2(dim)
-        index.add(_emb)
-
-        distances, nn = index.search(_emb, k=neighbours)
-
-        return nn, distances
-
-
 class HNSWLib(ANN):
     def load_and_query(
         self,
@@ -230,37 +215,3 @@ class LSHRPQuery(ANN):
         for i, hash_code in enumerate(self._binary_hash):
             table["".join([str(ii) for ii in hash_code])].append(i)
         return table, None
-
-
-class PySparNNCluster(ANN):
-    def load_and_query(
-        self, x, raw_data, neighbours=5, clusters=3, num_indexes=50, **kwargs
-    ):
-        import pysparnn.cluster_index as ci
-
-        cp = ci.MultiClusterIndex(x, raw_data, num_indexes=num_indexes)
-        nn = cp.search(x, k=neighbours, k_clusters=clusters, return_distance=True)
-        return nn
-
-
-class AnnoyAnn(ANN):
-    def load_and_query(self, x, n_tress=10, **kwargs):
-        from annoy import AnnoyIndex
-
-        _, dim = x.shape
-        a_index = AnnoyIndex(dim, "dot")
-        for i, vec in enumerate(x):
-            a_index.add_item(i, vec)
-
-        a_index.build(n_tress)
-
-        nn = list()
-        distances = list()
-        for i, vec in enumerate(x):
-            _nn, _d = a_index.get_nns_by_vector(
-                vec, n=5, search_k=5, include_distances=True
-            )
-            nn.append(_nn)
-            distances.append(_d)
-
-        return np.array(nn), np.array(distances)
