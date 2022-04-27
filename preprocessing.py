@@ -103,7 +103,7 @@ class X1_Preprocessor(Preprocessor):
         super().__init__(df)
 
     def _preprocess_X(self):
-        self.df['short_id'] = " "
+        # self.df['short_id'] = " "
         return self.df
 
 

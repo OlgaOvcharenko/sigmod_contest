@@ -12,6 +12,8 @@ import pandas as pd
 
 import baseline
 import preprocessing
+from ann_search import LSHRPQuery
+from feature_embeddings import TFIDFHashedEmbeddings
 from preprocessing import Preprocessor
 from lsh import *
 
@@ -144,8 +146,8 @@ def blocking_step(df_path, is_X2:bool):
         original_str = row['title']
         str = preprocessing.normalize_string(row['title'], is_X2)
 
-        if is_X2:
-            [all_pairs_hashed[k].append(row['id']) for k in hash_by_number(original_str, is_X2)]
+        # if is_X2:
+        #     [all_pairs_hashed[k].append(row['id']) for k in hash_by_number(original_str, is_X2)]
 
         # dataset['short_id'][i] = short_id
         shingles.append((row['id'], k_shingles(str, k)))
@@ -174,9 +176,9 @@ def blocking_step(df_path, is_X2:bool):
 
     # hash by numbers in string
     cand_pairs = []
-    for hashed_key in sorted(all_pairs_hashed, key=lambda x: len(all_pairs_hashed[x]), reverse=True):
-        cand_pairs.extend([(pair[0], pair[1]) if pair[0] < pair[1] else (pair[1], pair[0])
-         for pair in itertools.combinations(all_pairs_hashed[hashed_key], 2) if len(all_pairs_hashed[hashed_key]) > 1])
+    # for hashed_key in sorted(all_pairs_hashed, key=lambda x: len(all_pairs_hashed[x]), reverse=True):
+    #     cand_pairs.extend([(pair[0], pair[1]) if pair[0] < pair[1] else (pair[1], pair[0])
+    #      for pair in itertools.combinations(all_pairs_hashed[hashed_key], 2) if len(all_pairs_hashed[hashed_key]) > 1])
 
     all_shingles = {item for set_ in shingles for item in set_[1]}
 
@@ -221,7 +223,80 @@ def recall(true, prediction, get_false: bool):
     return (len(set(true).intersection(set(prediction)))) / len(true), fp
 
 
-if __name__ == '__main__':
+def blocking_step2(df_path):
+    ds = Preprocessor.build(df_path)
+    dataset = ds.preprocess()  # TODO: split into #hyperthreads jobs
+
+    k = 3  # ~5 for small docs (emails), 9 - 10 for large docs(papers)
+    shingles = []
+    for _, row in dataset.iterrows():
+        # data = row["title"]
+        # original_str = row['title']
+        data = preprocessing.normalize_string(row['title'], True)
+        shingles.append((row["id"], k_shingles(data, k)))
+
+    all_shingles = {item for set_ in shingles for item in set_[1]}
+
+    vocab = {}
+    for i, shingle in enumerate(list(all_shingles)):
+        vocab[shingle] = i
+
+    del all_shingles
+
+    buckets = 15
+    lsh = LSH(buckets)
+
+    hash_function_count = 150
+    arr = gen_minhash(vocab, hash_function_count)
+    for id, shingle in shingles:
+        if len(shingle) == 0:
+            continue
+        ohe = one_hot(shingle, vocab)
+
+        fingerprint = get_fingerprint(arr, ohe)
+        lsh.hash(fingerprint, id)
+
+    feature_embeddings = TFIDFHashedEmbeddings()
+    feature_embeddings.load()
+
+    emd = feature_embeddings.generate(dataset["title"].tolist(), n_features=50)
+
+    ann_search_index = LSHRPQuery()
+    nn, distances = ann_search_index.load_and_query(emd, n_bits=32)
+    rp_cp, _ = ann_search_index.generate_candidate_pairs(
+        nn, distances, dataset["id"].to_list()
+    )
+    lsh_cp = lsh.get_candidate_pairs()
+
+    return list(lsh_cp.union(rp_cp))
+
+
+def recall(true, prediction):
+    return (len(set(true).intersection(set(prediction)))) / len(true)
+
+
+def main2():
+    X1_candidate_pairs = blocking_step("X1.csv", False)
+    X2_candidate_pairs = blocking_step2("X2.csv")
+
+    print(f"X1_candidate_pairs: {len(X1_candidate_pairs)}")
+    print(f"X2_candidate_pairs: {len(X2_candidate_pairs)}")
+    #  pdb.set_trace()
+    r1 = recall(
+        pd.read_csv("Y1.csv").to_records(index=False).tolist(), X1_candidate_pairs
+    )
+    r2 = recall(
+        pd.read_csv("Y2.csv").to_records(index=False).tolist(), X2_candidate_pairs
+    )
+    r = (r1 + r2) / 2
+    print(f"RECALL FOR X1 \t\t{r1:.3f}")
+    print(f"RECALL FOR X2 \t\t{r2:.3f}")
+    print(f"RECALL OVERALL  \t{r:.3f}")
+    # save results
+    save_output(X1_candidate_pairs, X2_candidate_pairs)
+
+
+def main1():
     X1_candidate_pairs = blocking_step("X1.csv", False)
     print(f'X1_candidate_pairs: {len(X1_candidate_pairs)}')
 
@@ -261,3 +336,7 @@ if __name__ == '__main__':
     #     print(list(y1["name"][y1["id"] == f[0]]))
     #     print(list(y1["name"][y1["id"] == f[1]]))
     #     print("\n")
+
+
+if __name__ == '__main__':
+    main2()

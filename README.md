@@ -2,7 +2,7 @@
 
 ### Steps to create submission file
 
-Install reprozip if not already using cmd`pip install reprozip` and then follow the below steps
+Install [reprozip](https://docs.reprozip.org/en/0.7.x/install.html) -`pip install reprozip` and then follow the below steps
 
 ```python
     reprozip trace python blocking.py
