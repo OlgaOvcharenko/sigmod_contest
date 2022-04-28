@@ -60,6 +60,39 @@ def hash_by_number(name: str, is_X2: bool):
     return all_pairs_hashed
 
 
+def minhash_important_numbers(dataset):
+    k = 2
+    shingles = []
+    for _, row in dataset.iterrows():
+        n = row['important_numbers']
+        if n == 'nope':
+            continue
+        shingles.append((row['id'], k_shingles(n, k)))
+
+    all_shingles = {item for set_ in shingles for item in set_[1]}
+
+    vocab = {}
+    for i, shingle in enumerate(list(all_shingles)):
+        vocab[shingle] = i
+
+    del all_shingles
+
+    buckets = 5
+    lsh = LSH(buckets)
+
+    hash_function_count = 50
+    arr = gen_minhash(vocab, hash_function_count)
+    for id, shingle in shingles:
+        if len(shingle) == 0:
+            continue
+        ohe = one_hot(shingle, vocab)
+
+        fingerprint = get_fingerprint(arr, ohe)
+        lsh.hash(fingerprint, id)
+
+    return list(lsh.get_candidate_pairs())
+
+
 def blocking_step(df_path, is_X2:bool):
     all_pairs_hashed = defaultdict(list)
 
@@ -79,22 +112,21 @@ def blocking_step(df_path, is_X2:bool):
 
     i = 0
     for _, row in dataset.iterrows():
-        original_str = row['title']
-        new_str = preprocessing.normalize_string(row['title'], is_X2)
+        string = row['title']
 
         # if is_X2:
         #     [all_pairs_hashed[k].append(row['id']) for k in hash_by_number(original_str, is_X2)]
 
         # dataset['short_id'][i] = short_id
-        shingles.append((row['id'], k_shingles(new_str, k)))
+        shingles.append((row['id'], k_shingles(string, k)))
 
-        if is_X2:
-            for d in buckets_brands.keys():
-                if d in new_str:
-                    hashed_nums = hash_by_number(original_str, is_X2)
-                    [buckets_brands[d][paired_num].append(row['id']) for paired_num in hashed_nums]
-
-        i += 1
+        #  if is_X2:
+        #      for d in buckets_brands.keys():
+        #          if d in string:
+        #              hashed_nums = hash_by_number(original_str, is_X2)
+        #              [buckets_brands[d][paired_num].append(row['id']) for paired_num in hashed_nums]
+        #
+        #  i += 1
 
     all_pairs = []
     # for brand, ids in buckets_brands.items():
@@ -141,11 +173,18 @@ def blocking_step(df_path, is_X2:bool):
 
     lsh_pairs = list(lsh.get_candidate_pairs())
 
+    if is_X2:
+        minhash_numbers = minhash_important_numbers(dataset)
     print(f"LSH: \t{len(lsh_pairs)}")
     print(f"Hashed numbers \t{len(cand_pairs)}")
     print(f"By brand \t{len(all_pairs)}")
+    if is_X2:
+        print(f"By important number\t{len(minhash_numbers)}")
 
-    res = set(lsh_pairs + cand_pairs + all_pairs)
+    if is_X2:
+        res = set(lsh_pairs + cand_pairs + all_pairs + minhash_numbers)
+    else:
+        res = set(lsh_pairs + cand_pairs + all_pairs)
 
     del lsh_pairs, all_pairs, cand_pairs, shingles
 
