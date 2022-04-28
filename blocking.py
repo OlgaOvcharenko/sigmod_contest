@@ -204,9 +204,9 @@ def blocking_step2(df_path):
     k = 3  # ~5 for small docs (emails), 9 - 10 for large docs(papers)
     shingles = []
     for _, row in dataset.iterrows():
-        # data = row["title"]
+        data = row["title"]
         # original_str = row['title']
-        data = preprocessing.normalize_string(row['title'], True)
+        # data = preprocessing.normalize_string(row['title'], True)
         shingles.append((row["id"], k_shingles(data, k)))
 
     all_shingles = {item for set_ in shingles for item in set_[1]}
@@ -250,8 +250,8 @@ def recall(true, prediction):
 
 
 def main2():
-    X1_candidate_pairs = blocking_step("X1.csv", False)
-    X2_candidate_pairs = blocking_step("X2.csv", True)
+    X1_candidate_pairs = blocking_step2("X1.csv")
+    X2_candidate_pairs = blocking_step2("X2.csv")
 
     print(f"X1_candidate_pairs: {len(X1_candidate_pairs)}")
     print(f"X2_candidate_pairs: {len(X2_candidate_pairs)}")

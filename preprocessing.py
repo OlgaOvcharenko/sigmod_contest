@@ -55,7 +55,7 @@ class Preprocessor:
             path = "X2.csv"
         return datasets[path](real_path)
 
-    def normalize_string(str_to_normalize: str, is_X2: bool):
+    def normalize_string(self, str_to_normalize: str, is_X2: bool):
         # lowercase, no punctuation or - | &,
         # remove website names like as amazon.com/ebay/techbuy/alienware/Miniprice.ca,
         # wholesale/new/used/brand,
@@ -77,15 +77,14 @@ class Preprocessor:
                      "&", "*", "#", "(", ")", "[", "]", "{", "}", "/", "|", '"', "*", "/", '-', '+', "#", "-", '\n',
                      "1st", "2nd", "3rd",
                      "ghz", "inch", "cm", "mm", "mhz", "gb", "kb",
-                     "label", "may", "change", "les", "pour", }
+                     "label", "may", "change", "les", "pour", "&nbsp"}
 
         # remove domain names
         pattern_domain_name = "^((?!-)[A-Za-z0-9-]" + "{1,63}(?<!-)\\.)" + "+[A-Za-z]{2,6}"
         no_domain_str = re.sub(pattern_domain_name, '', str_to_normalize.lower())
 
         # remove all digits
-        if is_X2:
-            no_domain_str = re.sub('[\d]+[.,\d]+|[\d]*[.][\d]+|[\d]+', '', no_domain_str)
+        no_domain_str = re.sub('[\d]+[.,\d]+|[\d]*[.][\d]+|[\d]+', '', no_domain_str)
 
         # replace 5 cm to 5cm (Hz, inch etc) etc
         pattern_measures_name = "(?:\d+)\s+(inch|cm|mm|m|hz|ghz|gb|mb|g)"

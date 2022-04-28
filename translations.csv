@@ -1,6 +1,6 @@
 portatili,portable
 ordinateur,computer
-chiavetta,key
+chiavetta,usb
 adaptador,adapter
 jetzt,now
 tarjeta,card
@@ -39,8 +39,8 @@ minneskort,memory card
 homologuée,homologated
 fotoksi,photoxy
 kostenloser,free
-chiavette,keys
-velocidades,speeds
+chiavette,usb
+velocidades,speed
 allant,going
 niebieski,blue
 hasta,until
@@ -176,10 +176,10 @@ wasserfest,waterproof
 röntgenstrahlenbeständig,x-ray resistant
 fantaisie,fancy
 originale,original
-clefs,keys
+clefs,usb
 chère,Dear
 cheres,
-cléusb,memory
+cléusb,usb
 meilleur,good
 meilleure,good
 intégral,integral
@@ -258,7 +258,7 @@ czarny,black
 saercado,sacercated
 professionale,professional
 naranja,orange
-clémoire,clemoir
+clémoire,usb
 capturer,capture
 grigia,gray
 íbrný,silver
@@ -367,7 +367,7 @@ tylko,only
 wieczyst,perpetual
 gwarancj,guarantee
 carte,card
-clé,key
+clé,usb
 sous,under
 blister,blister
 lecteur,reader
@@ -437,8 +437,8 @@ frustfreie,freustproe
 verpackung,packaging
 bis,to
 lesen,read
-speicherstick,memory stick
-speicherkarten,memory cards
+speicherstick,memory
+speicherkarten,memory
 platinum,platinum
 schreiben,write
 rot,red
@@ -464,14 +464,14 @@ pas,not
 cher,expensive
 verbatim,verbatim
 légo,legal
-clef,key
-cle,key
+clef,usb
+cle,usb
 utilisation,use
-clè,key
-clès,key
-cléf,key
-cles,key
-clefs,key
+clè,usb
+clès,usb
+cléf,usb
+cles,usb
+clefs,usb
 chère,dear
 corsair,corsair
 cheres,expensive
@@ -493,7 +493,7 @@ lecteur,reader
 lecteurs,reader
 adattatore,adapter
 portatile,portable
-chiavetta,key
+chiavetta,usb
 grigio,grey
 professionale,professional
 capacità,capacity
@@ -504,7 +504,7 @@ nera,black
 argento,silver
 grigia,gray
 bianco,white
-scrittura,writing
+scrittura,write
 rosso,red
 kaart,card
 disque,disk
@@ -512,7 +512,7 @@ dur,hard
 externe,external
 fialový,violet
 minne,memory
-minneskort,memory card
+minneskort,memory
 mobiltillbehör,mobile accessories
 violett,violet
 blau,blue
@@ -521,7 +521,7 @@ mercado,market
 seconde,second
 zwart,black
 geheugenkaart,memory card
-flashstation,flash drive
+flashstation,memory card
 met,with
 shop,shop
 anschluss,connection
@@ -530,12 +530,14 @@ kappe,cap
 achat,purchase
 dans,in
 rayon,district
-clés,keys
+clés,usb
 wrnty,wire
 arancione,orange
 unità,unit
 disco,disk
 rigido,rigid
 esterno,external
-pour,for
-les,the
+chrgr,chargers
+usb stick,usb
+memory da usb,usb
+carte mémoire flash,usb
