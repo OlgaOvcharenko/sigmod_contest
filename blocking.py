@@ -17,7 +17,8 @@ from ann_search import LSHRPQuery
 from feature_embeddings import TFIDFHashedEmbeddings
 from preprocessing import Preprocessor
 from lsh import *
-from save_to_file import save_output, save_X2, save_X1
+from save_to_file import save_output, save_X1, save_X2
+
 
 def hash_by_number(name: str, is_X2: bool):
     pattern = '[\d]+[.,\d]+|[\d]*[.][\d]+|[\d]+'
@@ -30,36 +31,33 @@ def hash_by_number(name: str, is_X2: bool):
     def cantor_pairing(a, b):
         return (a + b) * ((a + b) / 2) * b
 
+    all_pairs_hashed = []
     # if len(all_numbers) == 2:
-    #     all_pairs_hashed = [cantor_pairing(pair[0], pair[1]) if pair[0] < pair[1] else
-    #                         cantor_pairing(pair[1], pair[0])
+    #     all_pairs_hashed = [int(cantor_pairing(pair[0], pair[1])) if pair[0] < pair[1] else
+    #                         int(cantor_pairing(pair[1], pair[0]))
     #                         for pair in itertools.combinations(all_numbers, 2)]
-    #     return all_pairs_hashed
-
+    #
+    # el
     if len(all_numbers) > 6:
-        hashed_triples = []
         for pair in itertools.combinations(all_numbers, 6):
             pair_sorted = sorted(pair)
-            hashed_triples.append(
-                cantor_pairing(int(cantor_pairing(
-                int(cantor_pairing(int(cantor_pairing(
-                int(cantor_pairing(pair_sorted[0], pair_sorted[1])), pair_sorted[2])), pair_sorted[3])), pair_sorted[4])), pair_sorted[5]))
-        return hashed_triples
-    elif is_X2 and 5 > len(all_numbers) > 3:
-        hashed_triples = []
-        for pair in itertools.combinations(all_numbers, 3):
-            pair_sorted = sorted(pair)
-            hashed_triples.append(cantor_pairing(int(cantor_pairing(pair_sorted[0], pair_sorted[1])), pair_sorted[2]))
-        return hashed_triples
-    elif is_X2 and len(all_numbers) > 4:
-        hashed_triples = []
+            all_pairs_hashed.append(int(
+                cantor_pairing(cantor_pairing(
+                cantor_pairing(cantor_pairing(
+                cantor_pairing(pair_sorted[0], pair_sorted[1]), pair_sorted[2]), pair_sorted[3]), pair_sorted[4]), pair_sorted[5])))
+
+    elif len(all_numbers) > 4:
         for pair in itertools.combinations(all_numbers, 4):
             pair_sorted = sorted(pair)
-            hashed_triples.append(cantor_pairing(int(cantor_pairing(
-                int(cantor_pairing(pair_sorted[0], pair_sorted[1])), pair_sorted[2])), pair_sorted[3]))
-        return hashed_triples
-    else:
-        return []
+            all_pairs_hashed.append(int(cantor_pairing(cantor_pairing(
+                cantor_pairing(pair_sorted[0], pair_sorted[1]), pair_sorted[2]), pair_sorted[3])))
+
+    elif len(all_numbers) > 3:
+        for pair in itertools.combinations(all_numbers, 3):
+            pair_sorted = sorted(pair)
+            all_pairs_hashed.append(int(cantor_pairing(cantor_pairing(pair_sorted[0], pair_sorted[1]), pair_sorted[2])))
+
+    return all_pairs_hashed
 
 
 def blocking_step(df_path, is_X2:bool):
@@ -71,39 +69,35 @@ def blocking_step(df_path, is_X2:bool):
     k = 3  # ~5 for small docs (emails), 9 - 10 for large docs(papers)
     shingles = []
 
-    buckets_brands = {"toshiba": [], "chuwi": [], "mediacom": [], "google": [], "sandisk": [],
-                      "vero": [], "msi": [], "xiaomi": [], "microsoft": [], "apple": [], "razer": [],
-                      "lg": [], "dell": [], "fujitsu": [], "huawei": [], "lenovo": [], "acer": [],
-                      "asus": [], "hp": [], "samsung": [], "kingston": [], "pami": [],
-                      "lenovo thinkpad": []}
+    buckets_brands = {"toshiba": defaultdict(list), "chuwi": defaultdict(list), "mediacom": defaultdict(list),
+                      "google": defaultdict(list), "sandisk": defaultdict(list), "vero": defaultdict(list),
+                      "msi": defaultdict(list), "xiaomi": defaultdict(list), "microsoft": defaultdict(list),
+                      "apple": defaultdict(list), "razer": defaultdict(list), "lg": defaultdict(list),
+                      "dell": defaultdict(list), "fujitsu": defaultdict(list), "huawei": defaultdict(list), "lenovo": defaultdict(list), "acer": defaultdict(list),
+                      "asus": defaultdict(list), "hp": defaultdict(list), "samsung": defaultdict(list), "kingston": defaultdict(list),
+                      "pami": defaultdict(list), "lenovo thinkpad": defaultdict(list)}
 
     i = 0
     for _, row in dataset.iterrows():
         original_str = row['title']
-        str = preprocessing.normalize_string(row['title'], is_X2)
+        new_str = preprocessing.normalize_string(row['title'], is_X2)
 
         # if is_X2:
         #     [all_pairs_hashed[k].append(row['id']) for k in hash_by_number(original_str, is_X2)]
 
         # dataset['short_id'][i] = short_id
-        shingles.append((row['id'], k_shingles(str, k)))
+        shingles.append((row['id'], k_shingles(new_str, k)))
 
-        # for d in buckets_brands.keys():
-        #     if d in str:
-        #         buckets_brands[d].append(i)
+        if is_X2:
+            for d in buckets_brands.keys():
+                if d in new_str:
+                    hashed_nums = hash_by_number(original_str, is_X2)
+                    [buckets_brands[d][paired_num].append(row['id']) for paired_num in hashed_nums]
 
         i += 1
 
     all_pairs = []
-    # TODO joblib
-    # FIXME check ids
-    # or no sort and get > 0.5
     # for brand, ids in buckets_brands.items():
-    #     def intersection(name1, name2):
-    #         s1 = set(name1.lower().split())
-    #         s2 = set(name2.lower().split())
-    #         return len(s1.intersection(s2)) / max(len(s1), len(s2))
-    #
     #     pairs = [(dataset['id'][a], dataset['id'][b]) if dataset['id'][a] < dataset['id'][b]
     #                  else (dataset['id'][b], dataset['id'][a])
     #                  for idx, a in enumerate(ids) for b in ids[idx + 1:] if dataset['id'][b] != dataset['id'][a]]
@@ -115,6 +109,14 @@ def blocking_step(df_path, is_X2:bool):
     # for hashed_key in sorted(all_pairs_hashed, key=lambda x: len(all_pairs_hashed[x]), reverse=True):
     #     cand_pairs.extend([(pair[0], pair[1]) if pair[0] < pair[1] else (pair[1], pair[0])
     #      for pair in itertools.combinations(all_pairs_hashed[hashed_key], 2) if len(all_pairs_hashed[hashed_key]) > 1])
+
+    if is_X2:
+        for brand, all_hashed in buckets_brands.items():
+            for hashed_key in sorted(all_hashed, key=lambda x: len(all_hashed[x]), reverse=True):
+                ids_in_bucket = [(pair[0], pair[1]) if pair[0] < pair[1] else (pair[1], pair[0])
+                                 for pair in itertools.combinations(all_hashed[hashed_key], 2)
+                                 if len(all_hashed[hashed_key]) > 1]
+                cand_pairs.extend(ids_in_bucket)
 
     all_shingles = {item for set_ in shingles for item in set_[1]}
 
@@ -138,9 +140,6 @@ def blocking_step(df_path, is_X2:bool):
         lsh.hash(fingerprint, id)
 
     lsh_pairs = list(lsh.get_candidate_pairs())
-
-    # baseline_pairs = baseline.block_with_attr(dataset, 'title')
-    # TODO random pairs -> numbers instead
 
     print(f"LSH: \t{len(lsh_pairs)}")
     print(f"Hashed numbers \t{len(cand_pairs)}")
@@ -233,18 +232,18 @@ def main2():
 
 
 def main1():
-    X1_candidate_pairs = blocking_step("X1_large.csv", False)
+    X1_candidate_pairs = blocking_step("X1.csv", False)
     print(f'X1_candidate_pairs: {len(X1_candidate_pairs)}')
 
-    r1, fp1 = recall_misses(pd.read_csv('Y1.csv').to_records(
-        index=False).tolist(), X1_candidate_pairs, True)
+    r1, fp1 = recall(pd.read_csv('Y1.csv').to_records(
+        index=False).tolist(), X1_candidate_pairs, False)
     print(f"RECALL FOR X1 \t\t{r1:.3f}")
     save_X1(X1_candidate_pairs)
 
-    del X1_candidate_pairs
-    gc.collect()
+    # del X1_candidate_pairs
+    # gc.collect()
 
-    X2_candidate_pairs = blocking_step("X2_large.csv", True)
+    X2_candidate_pairs = blocking_step("X2.csv", True)
     print(f'X2_candidate_pairs: {len(X2_candidate_pairs)}')
 
     r2, fp2 = recall_misses(pd.read_csv('Y2.csv').to_records(
