@@ -1,6 +1,7 @@
 import csv
 import gc
 import itertools
+import os
 import re
 import string
 from collections import defaultdict
@@ -16,77 +17,12 @@ from ann_search import LSHRPQuery
 from feature_embeddings import TFIDFHashedEmbeddings
 from preprocessing import Preprocessor
 from lsh import *
-
-
-def save_output(X1_candidate_pairs,
-                X2_candidate_pairs):  # save the candset for both datasets to a SINGLE file output.csv
-    expected_cand_size_X1 = 1000000
-    expected_cand_size_X2 = 2000000
-
-    # make sure to include exactly 1000000 pairs for dataset X1 and 2000000 pairs for dataset X2
-    if len(X1_candidate_pairs) > expected_cand_size_X1:
-        X1_candidate_pairs = X1_candidate_pairs[:expected_cand_size_X1]
-    if len(X2_candidate_pairs) > expected_cand_size_X2:
-        X2_candidate_pairs = X2_candidate_pairs[:expected_cand_size_X2]
-
-    # make sure to include exactly 1000000 pairs for dataset X1 and 2000000 pairs for dataset X2
-    if len(X1_candidate_pairs) < expected_cand_size_X1:
-        X1_candidate_pairs.extend(
-            [(0, 0)] * (expected_cand_size_X1 - len(X1_candidate_pairs)))
-    if len(X2_candidate_pairs) < expected_cand_size_X2:
-        X2_candidate_pairs.extend(
-            [(0, 0)] * (expected_cand_size_X2 - len(X2_candidate_pairs)))
-
-    # make sure to have the pairs in the first dataset first
-    all_cand_pairs = X1_candidate_pairs + X2_candidate_pairs
-    output_df = pd.DataFrame(all_cand_pairs, columns=[
-                             "left_instance_id", "right_instance_id"])
-    # In evaluation, we expect output.csv to include exactly 3000000 tuple pairs.
-    # we expect the first 1000000 pairs are for dataset X1, and the remaining pairs are for dataset X2
-    output_df.to_csv("output.csv", index=False)
-
-def save_X1(X1_candidate_pairs):  # save the candset for both datasets to a SINGLE file output.csv
-    expected_cand_size_X1 = 1000000
-
-    # make sure to include exactly 1000000 pairs for dataset X1 and 2000000 pairs for dataset X2
-    if len(X1_candidate_pairs) > expected_cand_size_X1:
-        X1_candidate_pairs = X1_candidate_pairs[:expected_cand_size_X1]
-
-    # make sure to include exactly 1000000 pairs for dataset X1 and 2000000 pairs for dataset X2
-    if len(X1_candidate_pairs) < expected_cand_size_X1:
-        X1_candidate_pairs.extend(
-            [(0, 0)] * (expected_cand_size_X1 - len(X1_candidate_pairs)))
-
-    # make sure to have the pairs in the first dataset first
-    all_cand_pairs = X1_candidate_pairs
-    output_df = pd.DataFrame(all_cand_pairs, columns=[
-                             "left_instance_id", "right_instance_id"])
-    output_df.to_csv("output.csv", index=False)
-
-def save_X2(X2_candidate_pairs):  # save the candset for both datasets to a SINGLE file output.csv
-    expected_cand_size_X2 = 2000000
-
-    # make sure to include exactly 1000000 pairs for dataset X1 and 2000000 pairs for dataset X2
-    if len(X2_candidate_pairs) > expected_cand_size_X2:
-        X2_candidate_pairs = X2_candidate_pairs[:expected_cand_size_X2]
-
-    # make sure to include exactly 1000000 pairs for dataset X1 and 2000000 pairs for dataset X2
-    if len(X2_candidate_pairs) < expected_cand_size_X2:
-        X2_candidate_pairs.extend(
-            [(0, 0)] * (expected_cand_size_X2 - len(X2_candidate_pairs)))
-
-    # make sure to have the pairs in the first dataset first
-    all_cand_pairs = X2_candidate_pairs
-
-    with open("output.csv", "a") as out:
-        csv_out = csv.writer(out)
-        csv_out.writerows(all_cand_pairs)
-
+from save_to_file import save_output, save_X2, save_X1
 
 def hash_by_number(name: str, is_X2: bool):
     pattern = '[\d]+[.,\d]+|[\d]*[.][\d]+|[\d]+'
 
-    all_numbers = set(filter(lambda num1: num1 > 9,
+    all_numbers = set(filter(lambda num1: num1 > 99,
                              map(lambda num: int(num.replace(".", "").replace(",", "")), re.findall(pattern, name))))
 
     # all_numbers = set(map(lambda num: int(num.replace(".", "").replace(",", "")), re.findall(pattern, name)))
@@ -218,7 +154,7 @@ def blocking_step(df_path, is_X2:bool):
     return list(res)
 
 
-def recall(true, prediction, get_false: bool):
+def recall_misses(true, prediction, get_false: bool):
     fp = set(true).difference(set(prediction)) if get_false else set()
     return (len(set(true).intersection(set(prediction)))) / len(true), fp
 
@@ -277,7 +213,7 @@ def recall(true, prediction):
 
 def main2():
     X1_candidate_pairs = blocking_step("X1.csv", False)
-    X2_candidate_pairs = blocking_step2("X2.csv")
+    X2_candidate_pairs = blocking_step("X2.csv", True)
 
     print(f"X1_candidate_pairs: {len(X1_candidate_pairs)}")
     print(f"X2_candidate_pairs: {len(X2_candidate_pairs)}")
@@ -297,45 +233,41 @@ def main2():
 
 
 def main1():
-    X1_candidate_pairs = blocking_step("X1.csv", False)
+    X1_candidate_pairs = blocking_step("X1_large.csv", False)
     print(f'X1_candidate_pairs: {len(X1_candidate_pairs)}')
 
-    r1, fp1 = recall(pd.read_csv('Y1.csv').to_records(
-        index=False).tolist(), X1_candidate_pairs, False)
+    r1, fp1 = recall_misses(pd.read_csv('Y1.csv').to_records(
+        index=False).tolist(), X1_candidate_pairs, True)
     print(f"RECALL FOR X1 \t\t{r1:.3f}")
     save_X1(X1_candidate_pairs)
 
     del X1_candidate_pairs
     gc.collect()
 
-    X2_candidate_pairs = blocking_step("X2.csv", True)
+    X2_candidate_pairs = blocking_step("X2_large.csv", True)
     print(f'X2_candidate_pairs: {len(X2_candidate_pairs)}')
 
-    r2, fp2 = recall(pd.read_csv('Y2.csv').to_records(
-        index=False).tolist(), X2_candidate_pairs, False)
+    r2, fp2 = recall_misses(pd.read_csv('Y2.csv').to_records(
+        index=False).tolist(), X2_candidate_pairs, True)
     print(f"RECALL FOR X2 \t\t{r2:.3f}")
     save_X2(X2_candidate_pairs)
 
     r = (r1 + r2) / 2
     print(f"RECALL OVERALL  \t{r:.3f}")
 
-    # # save results
-    # save_output(X1_candidate_pairs, X2_candidate_pairs)
+    print("Dataset 1 misses:")
+    y1 = pd.read_csv('X1.csv')
+    for f in fp1:
+        print(list(y1["title"][y1["id"] == f[0]]))
+        print(list(y1["title"][y1["id"] == f[1]]))
+        print("\n")
 
-    #
-    # print("Dataset 1 misses:")
-    # y1 = pd.read_csv('X1.csv')
-    # for f in fp1:
-    #     print(list(y1["title"][y1["id"] == f[0]]))
-    #     print(list(y1["title"][y1["id"] == f[1]]))
-    #     print("\n")
-    #
-    # print("Dataset 2 misses:")
-    # y1 = pd.read_csv('X2.csv')
-    # for f in fp2:
-    #     print(list(y1["name"][y1["id"] == f[0]]))
-    #     print(list(y1["name"][y1["id"] == f[1]]))
-    #     print("\n")
+    print("Dataset 2 misses:")
+    y1 = pd.read_csv('X2.csv')
+    for f in fp2:
+        print(list(y1["name"][y1["id"] == f[0]]))
+        print(list(y1["name"][y1["id"] == f[1]]))
+        print("\n")
 
 
 if __name__ == '__main__':

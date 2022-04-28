@@ -45,9 +45,9 @@ def normalize_string(str_to_normalize: str, is_X2: bool):
 
     if is_X2:
         result_words = set(word if not translations_dict.get(word) else translations_dict.get(word) for word in re.split("\W+", no_punctuation_string)
-                        if word not in stopwords and len(word) > 1)
+                        if len(word) > 2 and word not in stopwords)
     else:
-        result_words = set(word for word in re.split("\W+", no_punctuation_string) if word not in stopwords and len(word) > 1)
+        result_words = set(word for word in re.split("\W+", no_punctuation_string) if word not in stopwords and len(word) > 2)
 
     res_str = " ".join(sorted(result_words, reverse=False))  # TODO try sort
     # short_id = "".join([word[0] for word in result_words])
