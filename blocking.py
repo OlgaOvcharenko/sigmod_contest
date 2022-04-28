@@ -1,3 +1,6 @@
+import itertools
+from collections import defaultdict
+
 import pandas as pd
 import pdb
 import cProfile
@@ -22,6 +25,47 @@ isX1 = True
 #  f = logging.Formatter(fmt="[{filename}:{lineno}] {msg}", style="{")
 #  h.setFormatter(f)
 #  l.addHandler(h)
+
+
+def hash_by_number(name: str):
+    pattern = '[\d]+[.,\d]+|[\d]*[.][\d]+|[\d]+'
+
+    all_numbers = set(filter(lambda num1: num1 > 99,
+                             map(lambda num: int(num.replace(".", "").replace(",", "")), re.findall(pattern, name))))
+
+    # all_numbers = set(map(lambda num: int(num.replace(".", "").replace(",", "")), re.findall(pattern, name)))
+
+    def cantor_pairing(a, b):
+        return (a + b) * ((a + b) / 2) * b
+
+    all_pairs_hashed = []
+    # if len(all_numbers) == 2:
+    #     all_pairs_hashed = [int(cantor_pairing(pair[0], pair[1])) if pair[0] < pair[1] else
+    #                         int(cantor_pairing(pair[1], pair[0]))
+    #                         for pair in itertools.combinations(all_numbers, 2)]
+    #
+    # el
+    if len(all_numbers) > 6:
+        for pair in itertools.combinations(all_numbers, 6):
+            pair_sorted = sorted(pair)
+            all_pairs_hashed.append(int(
+                cantor_pairing(cantor_pairing(
+                    cantor_pairing(cantor_pairing(
+                        cantor_pairing(pair_sorted[0], pair_sorted[1]), pair_sorted[2]), pair_sorted[3]),
+                    pair_sorted[4]), pair_sorted[5])))
+
+    elif len(all_numbers) > 4:
+        for pair in itertools.combinations(all_numbers, 4):
+            pair_sorted = sorted(pair)
+            all_pairs_hashed.append(int(cantor_pairing(cantor_pairing(
+                cantor_pairing(pair_sorted[0], pair_sorted[1]), pair_sorted[2]), pair_sorted[3])))
+
+    elif len(all_numbers) > 3:
+        for pair in itertools.combinations(all_numbers, 3):
+            pair_sorted = sorted(pair)
+            all_pairs_hashed.append(int(cantor_pairing(cantor_pairing(pair_sorted[0], pair_sorted[1]), pair_sorted[2])))
+
+    return all_pairs_hashed
 
 
 def save_output(X1_candidate_pairs,
@@ -73,6 +117,8 @@ def blocking_step(df_path):
     common_token_counter = {}
     flags = {}
 
+    id_str = {}
+
     for _, row in dataset.iterrows():
         data = row['title']
         id = row['id']
@@ -84,6 +130,7 @@ def blocking_step(df_path):
         #  shngl = [' '.join(shngl[i: i + 2]) for i in range(0, len(shngl), 2)]
         shingles[id] = shngl
         source_freq[id] = len(shngl)
+        id_str[id] = data
         for s in shngl:
             if s in index:
                 index[s].append(id)
@@ -103,58 +150,36 @@ def blocking_step(df_path):
             if not src_ids:
                 continue
 
-            # loop over all ids that are in the bucket of one of the shingles
+        # loop over all ids that are in the bucket of one of the shingles
+
+        all_hashed = defaultdict(list)
+        [all_hashed[paired_num].append(id) for paired_num in hash_by_number(id_str[id])]
+
         for src_id in src_ids:
             if src_id == id:
                 continue
             if flags[src_id] != id:
                 common_token_counter[src_id] = 0
                 flags[src_id] = id
+            # FIXME is really necessary
             common_token_counter[src_id] = common_token_counter[src_id] + 1
             counter = common_token_counter[src_id]
 
-            if counter > 0:
-                pair = (id, src_id) if id < src_id else (src_id, id)
-                if pair not in cp:
-                    similarity = counter / \
-                        sqrt(source_freq[src_id] * len(shingle_set))
+            if counter > K:
+                # pair = (id, src_id) if id < src_id else (src_id, id)
+                # if pair not in cp:
+                #     similarity = counter / \
+                #         sqrt(source_freq[src_id] * len(shingle_set))
+                #
+                #     if similarity >= min_sim:
+                #         pair = (id, src_id) if id < src_id else (src_id, id)
+                #         cp.add(pair)
+                [all_hashed[paired_num].append(id) for paired_num in hash_by_number(id_str[src_id])]
 
-                    if similarity >= min_sim:
-                        pair = (id, src_id) if id < src_id else (src_id, id)
-                        cp.add(pair)
+        for hashed_key in sorted(all_hashed, key=lambda x: len(all_hashed[x]), reverse=True):
+            [cp.add((pair[0], pair[1])) if pair[0] < pair[1] else cp.add((pair[1], pair[0]))
+             for pair in itertools.combinations(all_hashed[hashed_key], 2) if len(all_hashed[hashed_key]) > 1]
 
-        #  if not local_cp:
-        #      continue
-        #
-        #  k_sim = PriorityQueue()
-        #  min_sim = 0
-        #  if len(local_cp) > max_local_cp:
-        #      max_local_cp = len(local_cp)
-        #
-        #  for candidate in local_cp:
-        #      j += 1
-        #      common = common_token_counter[candidate]
-        #
-        #      # cosine sim
-        #      similarity = common / \
-        #          sqrt(source_freq[candidate] * len(shingle_set))
-
-        #      if min_sim < similarity:
-        #          k_sim.put((-similarity, similarity))
-        #          if (K < k_sim.qsize()):
-        #              min_sim = k_sim.get()[1]
-        #
-        #  for candidate in local_cp:
-        #      common = common_token_counter[candidate]
-        #
-        #      # cosine sim
-        #      similarity = common / \
-        #          sqrt(source_freq[candidate] * len(shingle_set))
-
-            #  if similarity >= min_sim:
-            #      pair = (id, candidate) if id < candidate else (candidate, id)
-            #      cp.add(pair)
-    #  print(f"maxlen: {max_local_cp}\ni: {i}\tj: {j}")
     return list(cp)
 
 
