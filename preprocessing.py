@@ -55,7 +55,7 @@ class Preprocessor:
             path = "X2.csv"
         return datasets[path](real_path)
 
-    def normalize_string(self, str_to_normalize: str, is_X2: bool):
+    def normalize_string(str_to_normalize: str, is_X2: bool):
         # lowercase, no punctuation or - | &,
         # remove website names like as amazon.com/ebay/techbuy/alienware/Miniprice.ca,
         # wholesale/new/used/brand,
@@ -66,22 +66,26 @@ class Preprocessor:
         # stopwords as on/in/at/from etc
         # inch, GHz, Hz, cm
         stopwords = {"on", "in", "at", "from", "as", "an", "the", "a", "with", "and", "or", "of", "but", "and", "not",
-                     "amazon.com", "ebay", "techbuy", "alienware", "miniprice.ca", "alibaba", "mygofer.com", "uediamarkt", "mediamarkt",
+                     "amazon.com", "ebay", "techbuy", "alienware", "miniprice.ca", "alibaba", "mygofer.com",
+                     "uediamarkt", "mediamarkt",
                      "wholesale", "new", "used", "brand", "buy"
-                     "computer", "computers", "laptops", "laptop", "product", "products", "tablet", "tablets", "pc",
+                                                          "computer", "computers", "laptops", "laptop", "product",
+                     "products", "tablet", "tablets", "pc",
                      "buy", "sale", "best", "good", "quality", "better"
-                     "accessories", "kids", ""
-                     ",", "|", "/", "@", "!", "?", "-", "&", "*", "#", "(", ")", "[", "]", "{", "}", "/", "|", '"', "*", "/", '-', '+', "#", "-", '\n',
+                                                               "accessories", "kids", ""
+                                                                                      ",", "|", "/", "@", "!", "?", "-",
+                     "&", "*", "#", "(", ")", "[", "]", "{", "}", "/", "|", '"', "*", "/", '-', '+', "#", "-", '\n',
                      "1st", "2nd", "3rd",
-                     "ghz", "inch", "cm", "mm", "mhz", "gb", "kb", }
-        replace_dict = {"chrgr": "chargers",
-                        "usb-stick": "memory card", "memory da usb": "memory card"}
+                     "ghz", "inch", "cm", "mm", "mhz", "gb", "kb",
+                     "label", "may", "change", "les", "pour", }
 
         # remove domain names
-        pattern_domain_name = "^((?!-)[A-Za-z0-9-]" + \
-            "{1,63}(?<!-)\\.)" + "+[A-Za-z]{2,6}"
-        no_domain_str = re.sub(pattern_domain_name, '',
-                               str_to_normalize.lower())
+        pattern_domain_name = "^((?!-)[A-Za-z0-9-]" + "{1,63}(?<!-)\\.)" + "+[A-Za-z]{2,6}"
+        no_domain_str = re.sub(pattern_domain_name, '', str_to_normalize.lower())
+
+        # remove all digits
+        if is_X2:
+            no_domain_str = re.sub('[\d]+[.,\d]+|[\d]*[.][\d]+|[\d]+', '', no_domain_str)
 
         # replace 5 cm to 5cm (Hz, inch etc) etc
         pattern_measures_name = "(?:\d+)\s+(inch|cm|mm|m|hz|ghz|gb|mb|g)"
@@ -89,17 +93,16 @@ class Preprocessor:
 
         # remove punctuation
         no_punctuation_string = no_domain_str.translate(
-            str.maketrans(string.punctuation, " "*len(string.punctuation)))
+            str.maketrans(string.punctuation, " " * len(string.punctuation)))
 
         if is_X2:
-            result_words = set(word if not translations_dict.get(word) else translations_dict.get(word) for word in re.split("\W+", no_punctuation_string)
-                               if len(word) > 2 and word not in stopwords)
+            result_words = set(word if not translations_dict.get(word) else translations_dict.get(word) for word in
+                               re.split("\W+", no_punctuation_string)
+                               if word not in stopwords)
         else:
-            result_words = set(word for word in re.split(
-                "\W+", no_punctuation_string) if word not in stopwords and len(word) > 2)
+            result_words = set(word for word in re.split("\W+", no_punctuation_string) if word not in stopwords)
 
-        res_str = " ".join(
-            sorted(result_words, reverse=False))  # TODO try sort
+        res_str = " ".join(sorted(result_words, reverse=False))
         # short_id = "".join([word[0] for word in result_words])
         return res_str
 
