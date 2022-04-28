@@ -43,8 +43,8 @@ def hash_by_number(name: str, is_X2: bool):
             pair_sorted = sorted(pair)
             all_pairs_hashed.append(int(
                 cantor_pairing(cantor_pairing(
-                cantor_pairing(cantor_pairing(
-                cantor_pairing(pair_sorted[0], pair_sorted[1]), pair_sorted[2]), pair_sorted[3]), pair_sorted[4]), pair_sorted[5])))
+                    cantor_pairing(cantor_pairing(
+                        cantor_pairing(pair_sorted[0], pair_sorted[1]), pair_sorted[2]), pair_sorted[3]), pair_sorted[4]), pair_sorted[5])))
 
     elif len(all_numbers) > 4:
         for pair in itertools.combinations(all_numbers, 4):
@@ -55,7 +55,8 @@ def hash_by_number(name: str, is_X2: bool):
     elif len(all_numbers) > 3:
         for pair in itertools.combinations(all_numbers, 3):
             pair_sorted = sorted(pair)
-            all_pairs_hashed.append(int(cantor_pairing(cantor_pairing(pair_sorted[0], pair_sorted[1]), pair_sorted[2])))
+            all_pairs_hashed.append(int(cantor_pairing(cantor_pairing(
+                pair_sorted[0], pair_sorted[1]), pair_sorted[2])))
 
     return all_pairs_hashed
 
@@ -93,7 +94,21 @@ def minhash_important_numbers(dataset):
     return list(lsh.get_candidate_pairs())
 
 
-def blocking_step(df_path, is_X2:bool):
+def get_empty_string_pairs(dataset):
+    ds = dataset[dataset['title'] == '']
+    if ds.empty:
+        return []
+
+    ids = ds['id'].to_list()
+    candidates = set()
+    for ix1, id1 in enumerate(ids):
+        for _, id2 in enumerate(ids[ix1 + 1:]):
+            pair = (id1, id2) if id1 < id2 else (id2, id1)
+            candidates.add(pair)
+    return candidates
+
+
+def blocking_step(df_path, is_X2: bool):
     all_pairs_hashed = defaultdict(list)
 
     ds = Preprocessor.build(df_path)
@@ -173,16 +188,18 @@ def blocking_step(df_path, is_X2:bool):
 
     lsh_pairs = list(lsh.get_candidate_pairs())
 
-    if is_X2:
-        minhash_numbers = minhash_important_numbers(dataset)
+    empty_string_pairs = get_empty_string_pairs(dataset)
     print(f"LSH: \t{len(lsh_pairs)}")
     print(f"Hashed numbers \t{len(cand_pairs)}")
     print(f"By brand \t{len(all_pairs)}")
+    print(f"By empty string\t{len(empty_string_pairs)}")
     if is_X2:
+        minhash_numbers = minhash_important_numbers(dataset)
         print(f"By important number\t{len(minhash_numbers)}")
 
     if is_X2:
-        res = set(lsh_pairs + cand_pairs + all_pairs + minhash_numbers)
+        res = set(lsh_pairs + cand_pairs + all_pairs + minhash_numbers +
+                  empty_string_pairs)
     else:
         res = set(lsh_pairs + cand_pairs + all_pairs)
 
@@ -257,10 +274,12 @@ def main2():
     print(f"X2_candidate_pairs: {len(X2_candidate_pairs)}")
     #  pdb.set_trace()
     r1 = recall(
-        pd.read_csv("Y1.csv").to_records(index=False).tolist(), X1_candidate_pairs
+        pd.read_csv("Y1.csv").to_records(
+            index=False).tolist(), X1_candidate_pairs
     )
     r2 = recall(
-        pd.read_csv("Y2.csv").to_records(index=False).tolist(), X2_candidate_pairs
+        pd.read_csv("Y2.csv").to_records(
+            index=False).tolist(), X2_candidate_pairs
     )
     r = (r1 + r2) / 2
     print(f"RECALL FOR X1 \t\t{r1:.3f}")
