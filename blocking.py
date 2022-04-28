@@ -51,11 +51,17 @@ def save_output(X1_candidate_pairs,
     # we expect the first 1000000 pairs are for dataset X1, and the remaining pairs are for dataset X2
     output_df.to_csv("output.csv", index=False)
 
+def split_dataframe(df, chunk_size = 10000): 
+    chunks = list()
+    num_chunks = len(df) // chunk_size + 1
+    for i in range(num_chunks):
+        chunks.append(df[i*chunk_size:(i+1)*chunk_size])
+    return chunks
 
 def blocking_step(df_path):
     ds = Preprocessor.build(df_path)
-    dataset = ds.preprocess()   # TODO: split into #hyperthreads jobs
-
+    input_dataset = ds.preprocess()   # TODO: split into #hyperthreads jobs
+    dfs = split_dataframe(input_dataset, 5000)
     k = 3  # ~5 for small docs (emails), 9 - 10 for large docs(papers)
     if isX1:
         K = 10  # kNN-Join K
@@ -66,68 +72,74 @@ def blocking_step(df_path):
         min_sim = 0.8
     else:
         min_sim = 0.6
+    #  min_sim = 0
 
-    shingles = {}
-    source_freq = {}
-    index = {}
-    common_token_counter = {}
-    flags = {}
+    all_cp = set()
+    for dataset in dfs:
+        shingles = {}
+        source_freq = {}
+        index = {}
+        common_token_counter = {}
+        flags = {}
 
-    for _, row in dataset.iterrows():
-        data = row['title']
-        id = row['id']
-        flags[id] = -1
-        # TODO:
-        #  shngl = k_shingles(data, 9)
-        shngl = data.split()
-        #  pdb.set_trace()
-        #  shngl = [' '.join(shngl[i: i + 2]) for i in range(0, len(shngl), 2)]
-        shingles[id] = shngl
-        source_freq[id] = len(shngl)
-        for s in shngl:
-            if s in index:
-                index[s].append(id)
-            else:
-                index[s] = [id]
+        for _, row in dataset.iterrows():
+            data = row['title']
+            id = row['id']
+            flags[id] = -1
+            # TODO:
+            #  shngl = k_shingles(data, 9)
+            shngl = data.split()
+            #  pdb.set_trace()
+            #  shngl = [' '.join(shngl[i: i + 2]) for i in range(0, len(shngl), 2)]
+            shingles[id] = shngl
+            source_freq[id] = len(shngl)
+            for s in shngl:
+                if s in index:
+                    index[s].append(id)
+                else:
+                    index[s] = [id]
 
-    cp = set()
-    i = 0
-    j = 0
-    for id, shingle_set in shingles.items():
-        local_cp = []
-        i += 1
-        # loop over all shingles for a given row
-        src_ids = []
-        for s in shingle_set:
-            src_ids.extend(index[s])
-            if not src_ids:
-                continue
+        #  cp = set()
+        i = 0
+        j = 0
+        max_local_cp = 0
+        for id, shingle_set in shingles.items():
+            shingel_set_len = len(shingle_set)
+            #  local_cp = []
+            i += 1
+            # loop over all shingles for a given row
+            src_ids = []
+            for s in shingle_set:
+                src_ids.extend(index[s])
+                if not src_ids:
+                    continue
 
-            # loop over all ids that are in the bucket of one of the shingles
-        for src_id in src_ids:
-            if src_id == id:
-                continue
-            if flags[src_id] != id:
-                common_token_counter[src_id] = 0
-                flags[src_id] = id
-            common_token_counter[src_id] = common_token_counter[src_id] + 1
-            counter = common_token_counter[src_id]
+                # loop over all ids that are in the bucket of one of the shingles
+            for src_id in src_ids:
+                if src_id == id:
+                    continue
+                #  local_cp.append(src_id)
+                if flags[src_id] != id:
+                    common_token_counter[src_id] = 0
+                    flags[src_id] = id
+                common_token_counter[src_id] = common_token_counter[src_id] + 1
 
-            if counter > 0:
-                pair = (id, src_id) if id < src_id else (src_id, id)
-                if pair not in cp:
-                    similarity = counter / \
-                        sqrt(source_freq[src_id] * len(shingle_set))
+                counter = common_token_counter[src_id]
+                if counter > 0:
+                    pair = (id, src_id) if id < src_id else (src_id, id)
+                    if pair not in all_cp:
+                        similarity = counter / \
+                            sqrt(source_freq[src_id] * shingel_set_len)
 
-                    if similarity >= min_sim:
-                        pair = (id, src_id) if id < src_id else (src_id, id)
-                        cp.add(pair)
+                        if similarity >= min_sim:
+                            pair = (id, src_id) if id < src_id else (src_id, id)
+                            all_cp.add(pair)
 
         #  if not local_cp:
         #      continue
         #
         #  k_sim = PriorityQueue()
-        #  min_sim = 0
+        #  #  min_sim = 0
         #  if len(local_cp) > max_local_cp:
         #      max_local_cp = len(local_cp)
         #
@@ -154,8 +166,8 @@ def blocking_step(df_path):
             #  if similarity >= min_sim:
             #      pair = (id, candidate) if id < candidate else (candidate, id)
             #      cp.add(pair)
-    #  print(f"maxlen: {max_local_cp}\ni: {i}\tj: {j}")
-    return list(cp)
+    print(f"maxlen: {max_local_cp}\ni: {i}\tj: {j}")
+    return list(all_cp)
 
 
 def recall(true, prediction):
@@ -173,7 +185,7 @@ if __name__ == '__main__':
 
     sortby = SortKey.CUMULATIVE
     ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-    ps.print_stats(10)
+    ps.print_stats(25)
     print(s.getvalue())
 
     print(f'X1_candidate_pairs: {len(X1_candidate_pairs)}')
