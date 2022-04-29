@@ -142,8 +142,24 @@ def blocking_groupby(df_path, k=3, buckets=15, hash_function_count=150):
 
     return all_cp
 
+
 def recall(true, prediction):
     return (len(set(true).intersection(set(prediction)))) / len(true)
+
+
+def prepare_output(lsh_result: list, expected_output_size: int, *other_results):
+    other_res = []
+    for res in other_results:
+        other_res += res
+
+    lsh_result, other_results = set(lsh_result), set(other_res)
+    pairs = lsh_result.intersection(other_res)
+
+    remaining_res = []
+    if len(pairs) < expected_output_size:
+        remaining_res = list(lsh_result.difference(pairs))[0:expected_output_size-len(pairs)]
+
+    return pairs.union(set(remaining_res))
 
 
 if __name__ == "__main__":
