@@ -50,11 +50,10 @@ def save_output(
     output_df.to_csv("output.csv", index=False)
 
 
-def blocking_step(df_path):
+def blocking_step(df_path, k=3, buckets=15, hash_function_count=150):
     ds = Preprocessor.build(df_path)
-    dataset = ds.preprocess()  # TODO: split into #hyperthreads jobs
+    dataset = ds.preprocess()
 
-    k = 3  # ~5 for small docs (emails), 9 - 10 for large docs(papers)
     shingles = []
     for _, row in dataset.iterrows():
         data = row["title"]
@@ -68,12 +67,12 @@ def blocking_step(df_path):
 
     del all_shingles
 
-    buckets = 15
     lsh = LSH(buckets)
 
-    hash_function_count = 150
     arr = gen_minhash(vocab, hash_function_count)
     for id, shingle in shingles:
+        if not shingle:
+            continue
         ohe = one_hot(shingle, vocab)
 
         fingerprint = get_fingerprint(arr, ohe)
@@ -89,25 +88,67 @@ def blocking_step(df_path):
     rp_cp, _ = ann_search_index.generate_candidate_pairs(
         nn, distances, dataset["id"].to_list()
     )
+    del nn, distances, ann_search_index
     lsh_cp = lsh.get_candidate_pairs()
+    lsh_cp = lsh_cp.union(rp_cp)
+    return list(lsh_cp)
 
-    return list(lsh_cp.union(rp_cp))
+def blocking_groupby(df_path, k=3, buckets=15, hash_function_count=150):
+    ds = Preprocessor.build(df_path)
+    dataset = ds.preprocess()
+    dataset = dataset.groupby('brand')
+    all_cp = []
 
+    for _, group in dataset:
+        shingles = []
+        for _, row in group.iterrows():
+            data = row["title"]
+            shingles.append((row["id"], k_shingles(data, k)))
+
+        all_shingles = {item for set_ in shingles for item in set_[1]}
+
+        vocab = {}
+        for i, shingle in enumerate(list(all_shingles)):
+            vocab[shingle] = i
+
+        del all_shingles
+
+        lsh = LSH(buckets)
+
+        arr = gen_minhash(vocab, hash_function_count)
+        for id, shingle in shingles:
+            if not shingle:
+                continue
+            ohe = one_hot(shingle, vocab)
+
+            fingerprint = get_fingerprint(arr, ohe)
+            lsh.hash(fingerprint, id)
+
+        feature_embeddings = TFIDFHashedEmbeddings()
+        feature_embeddings.load()
+
+        emd = feature_embeddings.generate(group["title"].tolist(), n_features=50)
+
+        ann_search_index = LSHRPQuery()
+        nn, distances = ann_search_index.load_and_query(emd, n_bits=32)
+        rp_cp, _ = ann_search_index.generate_candidate_pairs(
+            nn, distances, group["id"].to_list()
+        )
+        del nn, distances, ann_search_index
+        lsh_cp = lsh.get_candidate_pairs()
+        lsh_cp = lsh_cp.union(rp_cp)
+
+        all_cp.extend(list(lsh_cp))
+
+    return all_cp
 
 def recall(true, prediction):
     return (len(set(true).intersection(set(prediction)))) / len(true)
 
 
 if __name__ == "__main__":
-
-    # %%
-    #  X1_df['id_title'] = X1_df['id'].astype(str) + ' ' + X1_df['title']
-    #  X1 = X1_df['id_title'].tolist()
-    #  X2_df['id_title'] = X2_df['id'].astype(str) + ' ' + X2_df['name']
-    #  X2 = X2_df['id_title'].tolist()  # TODO: include other attributes!
-
     X1_candidate_pairs = blocking_step("X1.csv")
-    X2_candidate_pairs = blocking_step("X2.csv")
+    X2_candidate_pairs = blocking_groupby("X2.csv")
 
     print(f"X1_candidate_pairs: {len(X1_candidate_pairs)}")
     print(f"X2_candidate_pairs: {len(X2_candidate_pairs)}")
