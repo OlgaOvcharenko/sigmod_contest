@@ -1,6 +1,7 @@
+import itertools
 import re
 import string
-
+from unidecode import unidecode
 import numpy as np
 import pandas as pd
 import pdb
@@ -72,7 +73,7 @@ class Preprocessor:
                                                           "computer", "computers", "laptops", "laptop", "product",
                      "products", "tablet", "tablets", "pc",
                      "buy", "sale", "best", "good", "quality", "better"
-                                                               "accessories", "kids", ""
+                                                               "accessories", "kids", "", "de"
                                                                                       ",", "|", "/", "@", "!", "?", "-",
                      "&", "*", "#", "(", ")", "[", "]", "{", "}", "/", "|", '"', "*", "/", '-', '+', "#", "-", '\n',
                      "1st", "2nd", "3rd",
@@ -82,9 +83,6 @@ class Preprocessor:
         # remove domain names
         pattern_domain_name = "^((?!-)[A-Za-z0-9-]" + "{1,63}(?<!-)\\.)" + "+[A-Za-z]{2,6}"
         no_domain_str = re.sub(pattern_domain_name, '', str_to_normalize.lower())
-
-        # remove all digits
-        no_domain_str = re.sub('[\d]+[.,\d]+|[\d]*[.][\d]+|[\d]+', '', no_domain_str)
 
         # replace 5 cm to 5cm (Hz, inch etc) etc
         pattern_measures_name = "(?:\d+)\s+(inch|cm|mm|m|hz|ghz|gb|mb|g)"
@@ -102,7 +100,8 @@ class Preprocessor:
             result_words = set(word for word in re.split("\W+", no_punctuation_string) if word not in stopwords)
 
         res_str = " ".join(sorted(result_words, reverse=False))
-        # short_id = "".join([word[0] for word in result_words])
+
+        # res_str = unidecode(res_str)
         return res_str
 
 
@@ -111,9 +110,7 @@ class X1_Preprocessor(Preprocessor):
         super().__init__(df)
 
     def _preprocess_X(self):
-        # self.df['short_id'] = " "
-        self.df['title'] = self.df['title'].apply(self.normalize_string,
-                                                  is_X2=False)
+        self.df['title_n'] = self.df['title'].apply(self.normalize_string, is_X2=False)
         return self.df
 
 
@@ -125,26 +122,44 @@ class X2_Preprocessor(Preprocessor):
         for _, row in self.df.iterrows():
             numbers = re.findall(r'\d+', row['title'])
             if not numbers:
-                self.df.at[_, 'important_numbers'] = 'nope'
+                self.df.at[_, 'important_numbers'] = '777'
                 continue
 
             numbers = [int(x) for x in numbers]
             n = max(numbers)
             if n < 1000:
-                self.df.at[_, 'important_numbers'] = 'nope'
+                self.df.at[_, 'important_numbers'] = '777'
                 continue
 
             self.df.at[_, 'important_numbers'] = str(n)
 
+    def split_by_separator(self):
+        for _, row in self.df.iterrows():
+            row, id = row['title'], row['id']
+
+            parts = []
+            if row.count('|') > 2:
+                parts = row.split('|')
+            elif row.count('/') > 4:
+                parts = row.split('|')
+            elif row.count('-') > 4:
+                parts = row.split('-')
+
+            if parts:
+                data_dict = {'id': list(itertools.repeat(id, len(parts))), 'title': parts}
+                self.df.append(data_dict, ignore_index=True)
+
+        self.df.reindex()
 
     def _preprocess_X(self):
-        print('x2 preprocess')
         self.df = self.df.rename({'name': 'title'}, axis=1)
+        self.split_by_separator()  # FIXME
         self.df['title'] = self.df['title'] + ' ' + self.df['brand'] + ' ' + \
             self.df['description'] + ' ' + \
             self.df['category']  # self.df['price'].astype(str) +
         self.df['title'] = self.df['title'].str.replace('nan', '')
-        self.df['short_id'] = " "
+        # self.df['short_id'] = " "
+        # self.split_by_separator()
         self.df['title'] = self.df['title'].apply(
             self.normalize_string, is_X2=True)
         self.df['important_numbers'] = -1

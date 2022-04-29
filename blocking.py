@@ -125,11 +125,11 @@ def blocking_step(df_path, is_X2: bool):
 
     # hash by numbers in string
     cand_pairs = []
-    if is_X2:
-        for hashed_key in all_pairs_hashed:
-            for pair in itertools.combinations(all_pairs_hashed[hashed_key], 2):
-                if len(all_pairs_hashed[hashed_key]) > 1:
-                    cand_pairs.append((pair[0], pair[1]) if pair[0] < pair[1] else (pair[1], pair[0]))
+    # if is_X2:
+    for hashed_key in all_pairs_hashed:
+        for pair in itertools.combinations(all_pairs_hashed[hashed_key], 2):
+            if len(all_pairs_hashed[hashed_key]) > 1:
+                cand_pairs.append((pair[0], pair[1]) if pair[0] < pair[1] else (pair[1], pair[0]))
 
     all_shingles = {item for set_ in shingles for item in set_[1]}
 
@@ -165,14 +165,16 @@ def blocking_step(df_path, is_X2: bool):
         print(f"By important number\t{len(minhash_numbers)}")
 
     if is_X2:
-        res = set(lsh_pairs + all_pairs + minhash_numbers +
-                  empty_string_pairs)
+        baseline_res = baseline.block_with_attr(dataset, 'title')
+        res = prepare_output(lsh_pairs, 1000000 if not is_X2 else 2000000,
+                             *[minhash_numbers, all_pairs, empty_string_pairs, cand_pairs, baseline_res])
     else:
         res = set(lsh_pairs + cand_pairs + all_pairs + empty_string_pairs)
 
     del lsh_pairs, all_pairs, cand_pairs, shingles
 
     print(f"Result set: \t{len(res)}\n")
+
     return list(res)
 
 
@@ -290,6 +292,21 @@ def main1():
         print(list(y1["name"][y1["id"] == f[0]]))
         print(list(y1["name"][y1["id"] == f[1]]))
         print("\n")
+
+
+def prepare_output(lsh_result: list, expected_output_size: int, *other_results):
+    other_res = []
+    for res in other_results:
+        other_res += res
+
+    lsh_result, other_results = set(lsh_result), set(other_res)
+    pairs = lsh_result.intersection(other_res)
+
+    remaining_res = []
+    if len(pairs) < expected_output_size:
+        remaining_res = list(lsh_result.difference(pairs))[0:expected_output_size-len(pairs)]
+
+    return pairs.union(set(remaining_res))
 
 
 if __name__ == '__main__':
