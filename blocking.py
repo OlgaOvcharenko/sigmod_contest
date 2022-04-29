@@ -22,8 +22,7 @@ from save_to_file import save_output, save_X1, save_X2
 
 def hash_by_number(name: str, is_X2: bool):
     pattern = '[\d]+[.,\d]+|[\d]*[.][\d]+|[\d]+'
-
-    all_numbers = set(filter(lambda num1: num1 > 99,
+    all_numbers = set(filter(lambda num1: num1 > 512,
                              map(lambda num: int(num.replace(".", "").replace(",", "")), re.findall(pattern, name))))
 
     # all_numbers = set(map(lambda num: int(num.replace(".", "").replace(",", "")), re.findall(pattern, name)))
@@ -32,13 +31,12 @@ def hash_by_number(name: str, is_X2: bool):
         return (a + b) * ((a + b) / 2) * b
 
     all_pairs_hashed = []
-    # if len(all_numbers) == 2:
-    #     all_pairs_hashed = [int(cantor_pairing(pair[0], pair[1])) if pair[0] < pair[1] else
-    #                         int(cantor_pairing(pair[1], pair[0]))
-    #                         for pair in itertools.combinations(all_numbers, 2)]
-    #
-    # el
-    if len(all_numbers) > 6:
+    if len(all_numbers) == 2:
+        all_pairs_hashed = [int(cantor_pairing(pair[0], pair[1])) if pair[0] < pair[1] else
+                            int(cantor_pairing(pair[1], pair[0]))
+                            for pair in itertools.combinations(all_numbers, 2)]
+
+    elif len(all_numbers) > 6:
         for pair in itertools.combinations(all_numbers, 6):
             pair_sorted = sorted(pair)
             all_pairs_hashed.append(int(
@@ -65,8 +63,8 @@ def minhash_important_numbers(dataset):
     k = 2
     shingles = []
     for _, row in dataset.iterrows():
-        n = row['important_numbers']
-        if n == 'nope':
+        n = str(row['important_numbers'])
+        if n == '777':
             continue
         shingles.append((row['id'], k_shingles(n, k)))
 
@@ -117,53 +115,21 @@ def blocking_step(df_path, is_X2: bool):
     k = 3  # ~5 for small docs (emails), 9 - 10 for large docs(papers)
     shingles = []
 
-    buckets_brands = {"toshiba": defaultdict(list), "chuwi": defaultdict(list), "mediacom": defaultdict(list),
-                      "google": defaultdict(list), "sandisk": defaultdict(list), "vero": defaultdict(list),
-                      "msi": defaultdict(list), "xiaomi": defaultdict(list), "microsoft": defaultdict(list),
-                      "apple": defaultdict(list), "razer": defaultdict(list), "lg": defaultdict(list),
-                      "dell": defaultdict(list), "fujitsu": defaultdict(list), "huawei": defaultdict(list), "lenovo": defaultdict(list), "acer": defaultdict(list),
-                      "asus": defaultdict(list), "hp": defaultdict(list), "samsung": defaultdict(list), "kingston": defaultdict(list),
-                      "pami": defaultdict(list), "lenovo thinkpad": defaultdict(list)}
-
-    i = 0
     for _, row in dataset.iterrows():
         string = row['title']
-
-        # if is_X2:
-        #     [all_pairs_hashed[k].append(row['id']) for k in hash_by_number(original_str, is_X2)]
-
-        # dataset['short_id'][i] = short_id
+        if is_X2:
+            [all_pairs_hashed[k].append(row['id']) for k in hash_by_number(string, is_X2)]
         shingles.append((row['id'], k_shingles(string, k)))
 
-        #  if is_X2:
-        #      for d in buckets_brands.keys():
-        #          if d in string:
-        #              hashed_nums = hash_by_number(original_str, is_X2)
-        #              [buckets_brands[d][paired_num].append(row['id']) for paired_num in hashed_nums]
-        #
-        #  i += 1
-
     all_pairs = []
-    # for brand, ids in buckets_brands.items():
-    #     pairs = [(dataset['id'][a], dataset['id'][b]) if dataset['id'][a] < dataset['id'][b]
-    #                  else (dataset['id'][b], dataset['id'][a])
-    #                  for idx, a in enumerate(ids) for b in ids[idx + 1:] if dataset['id'][b] != dataset['id'][a]]
-    #
-    #     all_pairs.extend(pairs)
 
     # hash by numbers in string
     cand_pairs = []
-    # for hashed_key in sorted(all_pairs_hashed, key=lambda x: len(all_pairs_hashed[x]), reverse=True):
-    #     cand_pairs.extend([(pair[0], pair[1]) if pair[0] < pair[1] else (pair[1], pair[0])
-    #      for pair in itertools.combinations(all_pairs_hashed[hashed_key], 2) if len(all_pairs_hashed[hashed_key]) > 1])
-
     if is_X2:
-        for brand, all_hashed in buckets_brands.items():
-            for hashed_key in sorted(all_hashed, key=lambda x: len(all_hashed[x]), reverse=True):
-                ids_in_bucket = [(pair[0], pair[1]) if pair[0] < pair[1] else (pair[1], pair[0])
-                                 for pair in itertools.combinations(all_hashed[hashed_key], 2)
-                                 if len(all_hashed[hashed_key]) > 1]
-                cand_pairs.extend(ids_in_bucket)
+        for hashed_key in all_pairs_hashed:
+            for pair in itertools.combinations(all_pairs_hashed[hashed_key], 2):
+                if len(all_pairs_hashed[hashed_key]) > 1:
+                    cand_pairs.append((pair[0], pair[1]) if pair[0] < pair[1] else (pair[1], pair[0]))
 
     all_shingles = {item for set_ in shingles for item in set_[1]}
 
@@ -191,21 +157,22 @@ def blocking_step(df_path, is_X2: bool):
     empty_string_pairs = get_empty_string_pairs(dataset)
     print(f"LSH: \t{len(lsh_pairs)}")
     print(f"Hashed numbers \t{len(cand_pairs)}")
-    print(f"By brand \t{len(all_pairs)}")
     print(f"By empty string\t{len(empty_string_pairs)}")
+
+    minhash_numbers = []
     if is_X2:
         minhash_numbers = minhash_important_numbers(dataset)
         print(f"By important number\t{len(minhash_numbers)}")
 
     if is_X2:
-        res = set(lsh_pairs + cand_pairs + all_pairs + minhash_numbers +
+        res = set(lsh_pairs + all_pairs + minhash_numbers +
                   empty_string_pairs)
     else:
-        res = set(lsh_pairs + cand_pairs + all_pairs)
+        res = set(lsh_pairs + cand_pairs + all_pairs + empty_string_pairs)
 
     del lsh_pairs, all_pairs, cand_pairs, shingles
 
-    print(f"Result set: \t{len(res)}")
+    print(f"Result set: \t{len(res)}\n")
     return list(res)
 
 
@@ -222,8 +189,6 @@ def blocking_step2(df_path):
     shingles = []
     for _, row in dataset.iterrows():
         data = row["title"]
-        # original_str = row['title']
-        # data = preprocessing.normalize_string(row['title'], True)
         shingles.append((row["id"], k_shingles(data, k)))
 
     all_shingles = {item for set_ in shingles for item in set_[1]}
@@ -267,8 +232,8 @@ def recall(true, prediction):
 
 
 def main2():
-    X1_candidate_pairs = blocking_step2("X1.csv")
-    X2_candidate_pairs = blocking_step2("X2.csv")
+    X1_candidate_pairs = blocking_step("X1.csv", False)
+    X2_candidate_pairs = blocking_step("X2.csv", True)
 
     print(f"X1_candidate_pairs: {len(X1_candidate_pairs)}")
     print(f"X2_candidate_pairs: {len(X2_candidate_pairs)}")
