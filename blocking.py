@@ -1,21 +1,72 @@
+import itertools
+import re
+import time
+from collections import defaultdict
+
 import pandas as pd
+import random
 import pdb
 
+import baseline
 from ann_search import LSHRPQuery
 from feature_embeddings import TFIDFHashedEmbeddings
 from preprocessing import Preprocessor
 from lsh import *
 
+start = time.time()
 
-#  X1_df = pd.read_csv("X1_large.csv")
-#  X2_df = pd.read_csv("X2_large.csv")
-X1_df = pd.read_csv("X1.csv")
-X2_df = pd.read_csv("X2.csv")
-#  l = logging.Logger("")
-#  h = logging.StreamHandler()
-#  f = logging.Formatter(fmt="[{filename}:{lineno}] {msg}", style="{")
-#  h.setFormatter(f)
-#  l.addHandler(h)
+
+def hash_by_number(name: str, is_X2: bool):
+    pattern = '[\d]+[.,\d]+|[\d]*[.][\d]+|[\d]+'
+    all_numbers = set(filter(lambda num1: num1 > 512,
+                             map(lambda num: int(num.replace(".", "").replace(",", "")), re.findall(pattern, name))))
+
+    # all_numbers = set(map(lambda num: int(num.replace(".", "").replace(",", "")), re.findall(pattern, name)))
+
+    def cantor_pairing(a, b):
+        return (a + b) * ((a + b) / 2) * b
+
+    all_pairs_hashed = []
+    if len(all_numbers) == 2:
+        all_pairs_hashed = [int(cantor_pairing(pair[0], pair[1])) if pair[0] < pair[1] else
+                            int(cantor_pairing(pair[1], pair[0]))
+                            for pair in itertools.combinations(all_numbers, 2)]
+
+    elif len(all_numbers) > 6:
+        for pair in itertools.combinations(all_numbers, 6):
+            pair_sorted = sorted(pair)
+            all_pairs_hashed.append(int(
+                cantor_pairing(cantor_pairing(
+                    cantor_pairing(cantor_pairing(
+                        cantor_pairing(pair_sorted[0], pair_sorted[1]), pair_sorted[2]), pair_sorted[3]), pair_sorted[4]), pair_sorted[5])))
+
+    elif len(all_numbers) > 4:
+        for pair in itertools.combinations(all_numbers, 4):
+            pair_sorted = sorted(pair)
+            all_pairs_hashed.append(int(cantor_pairing(cantor_pairing(
+                cantor_pairing(pair_sorted[0], pair_sorted[1]), pair_sorted[2]), pair_sorted[3])))
+
+    elif len(all_numbers) > 3:
+        for pair in itertools.combinations(all_numbers, 3):
+            pair_sorted = sorted(pair)
+            all_pairs_hashed.append(int(cantor_pairing(cantor_pairing(
+                pair_sorted[0], pair_sorted[1]), pair_sorted[2])))
+
+    return all_pairs_hashed
+
+
+def get_empty_string_pairs(dataset):
+    ds = dataset[dataset['title'] == '']
+    if ds.empty:
+        return []
+
+    ids = ds['id'].to_list()
+    candidates = set()
+    for ix1, id1 in enumerate(ids):
+        for _, id2 in enumerate(ids[ix1 + 1:]):
+            pair = (id1, id2) if id1 < id2 else (id2, id1)
+            candidates.add(pair)
+    return candidates
 
 
 def save_output(
@@ -50,14 +101,19 @@ def save_output(
     output_df.to_csv("output.csv", index=False)
 
 
-def blocking_step(df_path, k=3, buckets=15, hash_function_count=150):
+def blocking_step(df_path, k=3, buckets=15, hash_function_count=150, is_X2: bool=False):
     ds = Preprocessor.build(df_path)
     dataset = ds.preprocess()
+    all_pairs_hashed = defaultdict(list)
 
     shingles = []
     for _, row in dataset.iterrows():
         data = row["title"]
         shingles.append((row["id"], k_shingles(data, k)))
+
+        if is_X2:
+            [all_pairs_hashed[k].append(row['id']) for k in hash_by_number(data, is_X2)]
+        shingles.append((row['id'], k_shingles(data, k)))
 
     all_shingles = {item for set_ in shingles for item in set_[1]}
 
@@ -90,81 +146,74 @@ def blocking_step(df_path, k=3, buckets=15, hash_function_count=150):
     )
     del nn, distances, ann_search_index
     lsh_cp = lsh.get_candidate_pairs()
-    lsh_cp = lsh_cp.union(rp_cp)
-    return list(lsh_cp)
+    # lsh_cp = lsh_cp.union(rp_cp)
 
-def blocking_groupby(df_path, k=3, buckets=15, hash_function_count=150):
-    ds = Preprocessor.build(df_path)
-    dataset = ds.preprocess()
-    dataset = dataset.groupby('brand')
-    all_cp = []
+    empty_string_pairs = get_empty_string_pairs(dataset)
 
-    for _, group in dataset:
-        shingles = []
-        for _, row in group.iterrows():
-            data = row["title"]
-            shingles.append((row["id"], k_shingles(data, k)))
+    baseline_res = []
+    if time.time() - start <= (1700 if is_X2 else 900):
+        baseline_res = baseline.block_with_attr(dataset, 'title')
 
-        all_shingles = {item for set_ in shingles for item in set_[1]}
+    cand_pairs = []
+    if is_X2 and time.time() - start <= 1800:
+        for hashed_key in all_pairs_hashed:
+            for pair in itertools.combinations(all_pairs_hashed[hashed_key], 2):
+                if len(all_pairs_hashed[hashed_key]) > 1:
+                    cand_pairs.append((pair[0], pair[1]) if pair[0] < pair[1] else (pair[1], pair[0]))
 
-        vocab = {}
-        for i, shingle in enumerate(list(all_shingles)):
-            vocab[shingle] = i
+    res = prepare_output(lsh_cp, rp_cp, 1000000 if not is_X2 else 2000000,
+                         [empty_string_pairs, cand_pairs, baseline_res])
 
-        del all_shingles
+    print(f"LSH CP \t{len(lsh_cp)}")
+    print(f"RP CP \t{len(rp_cp)}")
+    print(f"Hashed numbers \t{len(cand_pairs)}")
+    print(f"Baseline \t{len(baseline_res)}")
+    print(f"By empty string\t{len(empty_string_pairs)}")
 
-        lsh = LSH(buckets)
-
-        arr = gen_minhash(vocab, hash_function_count)
-        for id, shingle in shingles:
-            if not shingle:
-                continue
-            ohe = one_hot(shingle, vocab)
-
-            fingerprint = get_fingerprint(arr, ohe)
-            lsh.hash(fingerprint, id)
-
-        feature_embeddings = TFIDFHashedEmbeddings()
-        feature_embeddings.load()
-
-        emd = feature_embeddings.generate(group["title"].tolist(), n_features=50)
-
-        ann_search_index = LSHRPQuery()
-        nn, distances = ann_search_index.load_and_query(emd, n_bits=32)
-        rp_cp, _ = ann_search_index.generate_candidate_pairs(
-            nn, distances, group["id"].to_list()
-        )
-        del nn, distances, ann_search_index
-        lsh_cp = lsh.get_candidate_pairs()
-        lsh_cp = lsh_cp.union(rp_cp)
-
-        all_cp.extend(list(lsh_cp))
-
-    return all_cp
+    return list(res)
 
 
 def recall(true, prediction):
     return (len(set(true).intersection(set(prediction)))) / len(true)
 
 
-def prepare_output(lsh_result: list, expected_output_size: int, *other_results):
-    other_res = []
-    for res in other_results:
-        other_res += res
+def prepare_output(lsh_cp: set, rp_cp: set, expected_output_size: int, other_results):
+    # intersection
+    both_lsh_pairs = list(lsh_cp.intersection(rp_cp))
 
-    lsh_result, other_results = set(lsh_result), set(other_res)
-    pairs = lsh_result.intersection(other_res)
+    tmp_len = len(both_lsh_pairs)
 
-    remaining_res = []
-    if len(pairs) < expected_output_size:
-        remaining_res = list(lsh_result.difference(pairs))[0:expected_output_size-len(pairs)]
+    # symmetric difference and other
+    other_res = list()
+    difference_lsh = lsh_cp.symmetric_difference(rp_cp)
+    difference_lsh_others = set()
+    if tmp_len < expected_output_size:
+        for res in other_results:
+            other_res += res
 
-    return pairs.union(set(remaining_res))
+        other_res = set(other_res)
+        difference_lsh_others = difference_lsh.intersection(other_res)
+        tmp_len += len(difference_lsh_others)
+
+    lsh_cp_rest = set()
+    if tmp_len < expected_output_size:
+        lsh_cp_rest = (lsh_cp.difference(rp_cp)).difference(difference_lsh_others)
+        tmp_len += len(lsh_cp_rest)
+
+    rp_cp_rest = set()
+    if tmp_len < expected_output_size:
+        rp_cp_rest = (rp_cp.difference(lsh_cp)).difference(difference_lsh_others)
+        tmp_len += len(rp_cp_rest)
+
+    res = list(both_lsh_pairs) + list(difference_lsh_others) + list(lsh_cp_rest) + list(rp_cp_rest)
+
+    return res
 
 
 if __name__ == "__main__":
-    X1_candidate_pairs = blocking_step("X1.csv")
-    X2_candidate_pairs = blocking_groupby("X2.csv")
+    start = time.time()
+    X1_candidate_pairs = blocking_step(df_path="X1.csv", is_X2=False)
+    X2_candidate_pairs = blocking_step(df_path="X2.csv", is_X2=True)
 
     print(f"X1_candidate_pairs: {len(X1_candidate_pairs)}")
     print(f"X2_candidate_pairs: {len(X2_candidate_pairs)}")
