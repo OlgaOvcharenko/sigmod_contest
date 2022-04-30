@@ -33,7 +33,7 @@ class LSH:
 
         bands = []
         for i in range(0, fingerprint_size, band_size):
-            bands.append(fingerprint[i : i + band_size])
+            bands.append(fingerprint[i: i + band_size])
         return np.stack(bands)
 
     def hash(self, fingerprint, id):
@@ -68,13 +68,16 @@ class LSH:
                 hashed_values = bucket_band[bucket]
                 if len(hashed_values) > 1:  # and len(hashed_values) < 100:
                     for ix1, id1 in enumerate(hashed_values):
-                        for _, id2 in enumerate(hashed_values[ix1 + 1 :]):
+                        for _, id2 in enumerate(hashed_values[ix1 + 1:]):
                             pair = (id1, id2) if id1 < id2 else (id2, id1)
                             candidates.add(pair)
                     #  pdb.set_trace()
                     #  candidates.extend(combinations(hashed_values, 2))
 
         return candidates
+
+    def get_buckets(self):
+        return self.buckets
 
 
 # %%
@@ -107,7 +110,7 @@ def k_shingles(data: str, k: int) -> set:
     shingles = []
 
     for i in range(len(data) - k + 1):
-        shingles.append(data[i : i + k])
+        shingles.append(data[i: i + k])
 
     return set(shingles)
 

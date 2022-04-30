@@ -1,10 +1,17 @@
 import pandas as pd
 import pdb
 
+import cProfile
+import pstats
+import io
+from pstats import SortKey
+
+from queue import PriorityQueue
 from ann_search import LSHRPQuery
 from feature_embeddings import TFIDFHashedEmbeddings
 from preprocessing import Preprocessor
 from lsh import *
+from math import sqrt
 
 
 #  X1_df = pd.read_csv("X1_large.csv")
@@ -55,9 +62,11 @@ def blocking_step(df_path, k=3, buckets=15, hash_function_count=150):
     dataset = ds.preprocess()
 
     shingles = []
-    for _, row in dataset.iterrows():
+    id_to_idx = {}
+    for i, row in dataset.iterrows():
         data = row["title"]
         shingles.append((row["id"], k_shingles(data, k)))
+        id_to_idx[row["id"]] = i
 
     all_shingles = {item for set_ in shingles for item in set_[1]}
 
@@ -89,9 +98,106 @@ def blocking_step(df_path, k=3, buckets=15, hash_function_count=150):
         nn, distances, dataset["id"].to_list()
     )
     del nn, distances, ann_search_index
-    lsh_cp = lsh.get_candidate_pairs()
-    lsh_cp = lsh_cp.union(rp_cp)
-    return list(lsh_cp)
+    #  lsh_cp = lsh.get_candidate_pairs()
+    minhash_buckets = lsh.get_buckets()
+    candidates = set()
+    buckets = 0
+    K_limit = 20
+    K = 5
+
+    #  pr = cProfile.Profile()
+    #  pr.enable()
+
+    for bucket_band in minhash_buckets:
+        keys = bucket_band.keys()
+        for bucket in keys:
+            hashed_values = bucket_band[bucket]
+            if len(hashed_values) > 1:  # and len(hashed_values) < 100:
+                # prune candidates with knnjoin
+                if len(hashed_values) > K_limit:
+                    index = {}
+                    shingles = {}
+                    source_freq = {}
+                    common_token_counter = {}
+                    flags = {}
+                    min_sim = 0.00
+                    for id in hashed_values:
+                        data = dataset.at[id_to_idx[id], 'title']
+                        flags[id] = -1
+                        shngl = data.split()
+                        shingles[id] = shngl
+                        source_freq[id] = len(shngl)
+                        for s in shngl:
+                            if s in index:
+                                index[s].append(id)
+                            else:
+                                index[s] = [id]
+                    for id, shingle_set in shingles.items():
+                        shingle_set_len = len(shingle_set)
+                        local_cp = []
+                        # loop over all shingles for a given row
+                        src_ids = []
+                        for s in shingle_set:
+                            src_ids.extend(index[s])
+                            if not src_ids:
+                                continue
+
+                            # loop over all ids that are in the bucket of one of the shingles
+                        for src_id in src_ids:
+                            if src_id == id:
+                                continue
+                            #  local_cp.append(src_id)
+                            if flags[src_id] != id:
+                                common_token_counter[src_id] = 0
+                                flags[src_id] = id
+                            common_token_counter[src_id] = common_token_counter[src_id] + 1
+
+                        if not local_cp:
+                            continue
+
+                        k_sim = PriorityQueue()
+
+                        for candidate in local_cp:
+                            common = common_token_counter[candidate]
+
+                            # cosine sim
+                            similarity = common / \
+                                sqrt(source_freq[candidate] * shingle_set_len)
+
+                            if min_sim < similarity:
+                                k_sim.put((-similarity, similarity))
+                                if (K < k_sim.qsize()):
+                                    min_sim = k_sim.get()[1]
+
+                        for candidate in local_cp:
+                            common = common_token_counter[candidate]
+
+                            # cosine sim
+                            similarity = common / \
+                                sqrt(source_freq[candidate] * shingle_set_len)
+
+                            if similarity >= min_sim:
+                                pair = (id, candidate) if id < candidate else (
+                                    candidate, id)
+                                candidates.add(pair)
+                else:
+                    for ix1, id1 in enumerate(hashed_values):
+                        for _, id2 in enumerate(hashed_values[ix1 + 1:]):
+                            pair = (id1, id2) if id1 < id2 else (id2, id1)
+                            candidates.add(pair)
+                #  pdb.set_trace()
+                #  candidates.extend(combinations(hashed_values, 2))
+    lsh_cp = list(candidates)
+    #  pr.disable()
+    #  s = io.StringIO()
+    #
+    #  sortby = SortKey.CUMULATIVE
+    #  ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    #  ps.print_stats(25)
+    #  print(s.getvalue())
+
+    return list(set(lsh_cp + list(rp_cp)))
+
 
 def blocking_groupby(df_path, k=3, buckets=15, hash_function_count=150):
     ds = Preprocessor.build(df_path)
@@ -108,6 +214,7 @@ def blocking_groupby(df_path, k=3, buckets=15, hash_function_count=150):
         all_shingles = {item for set_ in shingles for item in set_[1]}
 
         vocab = {}
+
         for i, shingle in enumerate(list(all_shingles)):
             vocab[shingle] = i
 
@@ -127,7 +234,8 @@ def blocking_groupby(df_path, k=3, buckets=15, hash_function_count=150):
         feature_embeddings = TFIDFHashedEmbeddings()
         feature_embeddings.load()
 
-        emd = feature_embeddings.generate(group["title"].tolist(), n_features=50)
+        emd = feature_embeddings.generate(
+            group["title"].tolist(), n_features=50)
 
         ann_search_index = LSHRPQuery()
         nn, distances = ann_search_index.load_and_query(emd, n_bits=32)
@@ -142,22 +250,25 @@ def blocking_groupby(df_path, k=3, buckets=15, hash_function_count=150):
 
     return all_cp
 
+
 def recall(true, prediction):
     return (len(set(true).intersection(set(prediction)))) / len(true)
 
 
 if __name__ == "__main__":
     X1_candidate_pairs = blocking_step("X1.csv")
-    X2_candidate_pairs = blocking_groupby("X2.csv")
+    X2_candidate_pairs = blocking_step("X2.csv")
 
     print(f"X1_candidate_pairs: {len(X1_candidate_pairs)}")
     print(f"X2_candidate_pairs: {len(X2_candidate_pairs)}")
     #  pdb.set_trace()
     r1 = recall(
-        pd.read_csv("Y1.csv").to_records(index=False).tolist(), X1_candidate_pairs
+        pd.read_csv("Y1.csv").to_records(
+            index=False).tolist(), X1_candidate_pairs
     )
     r2 = recall(
-        pd.read_csv("Y2.csv").to_records(index=False).tolist(), X2_candidate_pairs
+        pd.read_csv("Y2.csv").to_records(
+            index=False).tolist(), X2_candidate_pairs
     )
     r = (r1 + r2) / 2
     print(f"RECALL FOR X1 \t\t{r1:.3f}")
