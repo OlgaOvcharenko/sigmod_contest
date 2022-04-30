@@ -102,8 +102,8 @@ def blocking_step(df_path, k=3, buckets=15, hash_function_count=150):
     minhash_buckets = lsh.get_buckets()
     candidates = set()
     buckets = 0
-    K_limit = 20
-    K = 5
+    K_limit = 10
+    K = 3
 
     #  pr = cProfile.Profile()
     #  pr.enable()
