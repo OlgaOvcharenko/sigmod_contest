@@ -57,7 +57,8 @@ def save_output(
     output_df.to_csv("output.csv", index=False)
 
 
-def blocking_step(df_path, k=3, buckets=15, hash_function_count=150):
+def blocking_step(df_path, k=3, buckets=15, hash_function_count=150,
+                  is_X2=False):
     ds = Preprocessor.build(df_path)
     dataset = ds.preprocess()
 
@@ -87,23 +88,27 @@ def blocking_step(df_path, k=3, buckets=15, hash_function_count=150):
         fingerprint = get_fingerprint(arr, ohe)
         lsh.hash(fingerprint, id)
 
-    feature_embeddings = TFIDFHashedEmbeddings()
-    feature_embeddings.load()
+    if not is_X2:
+        feature_embeddings = TFIDFHashedEmbeddings()
+        feature_embeddings.load()
 
-    emd = feature_embeddings.generate(dataset["title"].tolist(), n_features=50)
+        emd = feature_embeddings.generate(dataset["title"].tolist(), n_features=50)
 
-    ann_search_index = LSHRPQuery()
-    nn, distances = ann_search_index.load_and_query(emd, n_bits=32)
-    rp_cp, _ = ann_search_index.generate_candidate_pairs(
-        nn, distances, dataset["id"].to_list()
-    )
-    del nn, distances, ann_search_index
-    #  lsh_cp = lsh.get_candidate_pairs()
+        ann_search_index = LSHRPQuery()
+        nn, distances = ann_search_index.load_and_query(emd, n_bits=32)
+        rp_cp, _ = ann_search_index.generate_candidate_pairs(
+            nn, distances, dataset["id"].to_list()
+        )
+        del nn, distances, ann_search_index
+        lsh_cp = lsh.get_candidate_pairs()
+        lsh_cp = lsh_cp.union(rp_cp)
+        return list(lsh_cp)
+
     minhash_buckets = lsh.get_buckets()
     candidates = set()
     buckets = 0
-    K_limit = 10
-    K = 3
+    K_limit = 25
+    K = 10
 
     #  pr = cProfile.Profile()
     #  pr.enable()
@@ -196,7 +201,7 @@ def blocking_step(df_path, k=3, buckets=15, hash_function_count=150):
     #  ps.print_stats(25)
     #  print(s.getvalue())
 
-    return list(set(lsh_cp + list(rp_cp)))
+    return lsh_cp
 
 
 def blocking_groupby(df_path, k=3, buckets=15, hash_function_count=150):
@@ -257,7 +262,8 @@ def recall(true, prediction):
 
 if __name__ == "__main__":
     X1_candidate_pairs = blocking_step("X1.csv")
-    X2_candidate_pairs = blocking_step("X2.csv")
+    X2_candidate_pairs = blocking_step("X2.csv", k=3, buckets=5,
+                                       hash_function_count=200)
 
     print(f"X1_candidate_pairs: {len(X1_candidate_pairs)}")
     print(f"X2_candidate_pairs: {len(X2_candidate_pairs)}")
