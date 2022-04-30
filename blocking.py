@@ -68,11 +68,11 @@ def blocking_step(df_path):
     else:
         K = 5
 
-    if isX1:
-        min_sim = 0.8
-    else:
-        min_sim = 0.6
-    #  min_sim = 0
+    #  if isX1:
+    #      min_sim = 0.8
+    #  else:
+    #      min_sim = 0.6
+    min_sim = 0
 
     all_cp = set()
     for dataset in dfs:
@@ -87,7 +87,7 @@ def blocking_step(df_path):
             id = row['id']
             flags[id] = -1
             # TODO:
-            #  shngl = k_shingles(data, 9)
+            #  shngl = k_shingles(data, 8)
             shngl = data.split()
             #  pdb.set_trace()
             #  shngl = [' '.join(shngl[i: i + 2]) for i in range(0, len(shngl), 2)]
@@ -99,13 +99,13 @@ def blocking_step(df_path):
                 else:
                     index[s] = [id]
 
-        #  cp = set()
+        cp = set()
         i = 0
         j = 0
         max_local_cp = 0
         for id, shingle_set in shingles.items():
             shingel_set_len = len(shingle_set)
-            #  local_cp = []
+            local_cp = []
             i += 1
             # loop over all shingles for a given row
             src_ids = []
@@ -118,54 +118,54 @@ def blocking_step(df_path):
             for src_id in src_ids:
                 if src_id == id:
                     continue
-                #  local_cp.append(src_id)
+                local_cp.append(src_id)
                 if flags[src_id] != id:
                     common_token_counter[src_id] = 0
                     flags[src_id] = id
                 common_token_counter[src_id] = common_token_counter[src_id] + 1
+                #
+                #  counter = common_token_counter[src_id]
+                #  if counter > 0:
+                #      pair = (id, src_id) if id < src_id else (src_id, id)
+                #      if pair not in all_cp:
+                #          similarity = counter / \
+                #              sqrt(source_freq[src_id] * shingel_set_len)
+                #
+                #          if similarity >= min_sim:
+                #              pair = (id, src_id) if id < src_id else (src_id, id)
+                #              all_cp.add(pair)
 
-                counter = common_token_counter[src_id]
-                if counter > 0:
-                    pair = (id, src_id) if id < src_id else (src_id, id)
-                    if pair not in all_cp:
-                        similarity = counter / \
-                            sqrt(source_freq[src_id] * shingel_set_len)
+            if not local_cp:
+                continue
 
-                        if similarity >= min_sim:
-                            pair = (id, src_id) if id < src_id else (src_id, id)
-                            all_cp.add(pair)
+            if len(local_cp) > 100:
+                continue
 
-        #  if not local_cp:
-        #      continue
-        #
-        #  k_sim = PriorityQueue()
-        #  #  min_sim = 0
-        #  if len(local_cp) > max_local_cp:
-        #      max_local_cp = len(local_cp)
-        #
-        #  for candidate in local_cp:
-        #      j += 1
-        #      common = common_token_counter[candidate]
-        #
-        #      # cosine sim
-        #      similarity = common / \
-        #          sqrt(source_freq[candidate] * len(shingle_set))
+            k_sim = PriorityQueue()
 
-        #      if min_sim < similarity:
-        #          k_sim.put((-similarity, similarity))
-        #          if (K < k_sim.qsize()):
-        #              min_sim = k_sim.get()[1]
-        #
-        #  for candidate in local_cp:
-        #      common = common_token_counter[candidate]
-        #
-        #      # cosine sim
-        #      similarity = common / \
-        #          sqrt(source_freq[candidate] * len(shingle_set))
+            for candidate in local_cp:
+                j += 1
+                common = common_token_counter[candidate]
 
-            #  if similarity >= min_sim:
-            #      pair = (id, candidate) if id < candidate else (candidate, id)
-            #      cp.add(pair)
+                # cosine sim
+                similarity = common / \
+                    sqrt(source_freq[candidate] * shingel_set_len)
+
+                if min_sim < similarity:
+                    k_sim.put((-similarity, similarity))
+                    if (K < k_sim.qsize()):
+                        min_sim = k_sim.get()[1]
+
+            for candidate in local_cp:
+                common = common_token_counter[candidate]
+
+                # cosine sim
+                similarity = common / \
+                    sqrt(source_freq[candidate] * shingel_set_len)
+
+                if similarity >= min_sim:
+                    pair = (id, candidate) if id < candidate else (candidate, id)
+                    all_cp.add(pair)
     print(f"maxlen: {max_local_cp}\ni: {i}\tj: {j}")
     return list(all_cp)
 
@@ -175,18 +175,18 @@ def recall(true, prediction):
 
 
 if __name__ == '__main__':
-    pr = cProfile.Profile()
-    pr.enable()
+    #  pr = cProfile.Profile()
+    #  pr.enable()
     X1_candidate_pairs = blocking_step("X1.csv")
     isX1 = False
     X2_candidate_pairs = blocking_step("X2.csv")
-    pr.disable()
-    s = io.StringIO()
-
-    sortby = SortKey.CUMULATIVE
-    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-    ps.print_stats(25)
-    print(s.getvalue())
+    #  pr.disable()
+    #  s = io.StringIO()
+    #
+    #  sortby = SortKey.CUMULATIVE
+    #  ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    #  ps.print_stats(25)
+    #  print(s.getvalue())
 
     print(f'X1_candidate_pairs: {len(X1_candidate_pairs)}')
     print(f'X2_candidate_pairs: {len(X2_candidate_pairs)}')
@@ -199,5 +199,5 @@ if __name__ == '__main__':
     print(f"RECALL FOR X1 \t\t{r1:.3f}")
     print(f"RECALL FOR X2 \t\t{r2:.3f}")
     print(f"RECALL OVERALL  \t{r:.3f}")
-    # save results
-    save_output(X1_candidate_pairs, X2_candidate_pairs)
+    #  # save results
+    #  save_output(X1_candidate_pairs, X2_candidate_pairs)
