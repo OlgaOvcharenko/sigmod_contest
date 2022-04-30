@@ -262,7 +262,7 @@ def recall(true, prediction):
 
 if __name__ == "__main__":
     X1_candidate_pairs = blocking_step("X1.csv")
-    X2_candidate_pairs = blocking_step("X2.csv", k=3, buckets=5,
+    X2_candidate_pairs = blocking_step("X2.csv", k=3, buckets=25,
                                        hash_function_count=200)
 
     print(f"X1_candidate_pairs: {len(X1_candidate_pairs)}")
